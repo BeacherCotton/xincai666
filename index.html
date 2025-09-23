@@ -35,7 +35,7 @@
           const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
           if (isWeChatBrowser && window.wxjs) {
             // 调用你现有的签名接口，请确保后端根据 FIXED_SIGN_URL 生成签名
-            fetch("https://ol.com/api/wechat/getJsapiTicket", {
+            fetch("https://l.com/api/wechat/getJsapiTicket", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ url: FIXED_SIGN_URL })
@@ -78,16 +78,52 @@
             .catch(err => console.error("获取微信 JS-SDK 配置失败：", err));
           }
 
-          /******************* 直接使用固定地址加载 iframe *******************/
+         
+          function checkWechatCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            
+            if (code && state) {
+              try {
+                const stateData = JSON.parse(state);
+                if (stateData.source === 'wechat_login') {
+                  return { code, state, isWechatCallback: true };
+                }
+              } catch (e) {
+               
+              }
+            }
+            return { isWechatCallback: false };
+          }
+
+         
           (function loadIframe(){
             const iframe = document.getElementById("dynamicIframe");
-            iframe.src = FIXED_IFRAME_URL; // 不再拼接当前 URL 参数，完全固定
-            console.log("iframe 加载地址:", FIXED_IFRAME_URL);
+            const callbackInfo = checkWechatCallback();
+            
+            let iframeUrl = FIXED_IFRAME_URL;
+            
+           
+            if (callbackInfo.isWechatCallback) {
+              const separator = iframeUrl.includes('?') ? '&' : '?';
+              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+              
+            }
+            
+            iframe.src = iframeUrl;
+           
           })();
 
-          /******************* 监听子页发来的跳转消息（保留） *******************/
+         
           window.addEventListener("message", function(event) {
+          
             if (event?.data?.action === "redirect" && typeof event.data.url === "string") {
+              window.location.href = event.data.url;
+            }
+            
+            
+            if (event?.data?.action === "wechat_authorize" && typeof event.data.url === "string") {      
               window.location.href = event.data.url;
             }
           });
