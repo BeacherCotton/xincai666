@@ -1,132 +1,139 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
   <foreignObject width="100%" height="100%">
     <html xmlns="http://www.w3.org/1999/xhtml">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no"/>
         <title>好料来了</title>
         <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <script>
-          if (typeof wx !== 'undefined') {
-            window.wxjs = wx; // 将 wx 绑定到全局对象
-          } else {
-            console.error('微信 JS-SDK 加载失败，wx 未定义');
-          }
-        </script>
         <style>
           *{margin:0;padding:0;}
-          html,body{width:100%;height:100%;}
+          html,body{width:100%;height:100%;background:#0000;}
           #dynamicIframe{display:block;width:100%;height:100%;border:0;}
         </style>
       </head>
-      <body translate="no">
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
+      <body>
+        <!-- 关键：sandbox 不授予 top-navigation，子页无法“破框”跳顶层 -->
+        <iframe id="dynamicIframe" src="" frameborder="0"
+                sandbox="allow-forms allow-scripts allow-same-origin allow-popups"></iframe>
 
         <script>
-          /******************* 固定地址（请按需修改） *******************/
-          // 固定展示页面（iframe 里打开的地址）
-          const FIXED_IFRAME_URL = "https://h5.hlll.org/"; // ← 改成你的固定页面地址
+          /******************* 需要你确认/修改的 3 处常量 *******************/
+          // 1) 固定展示页面（iframe 里打开的地址）
+          const FIXED_IFRAME_URL = "https://h5.hlll.org/"; // ← 改成你的固定页面
 
-          // 用于微信 JS-SDK 签名的固定 URL（服务端按这个 URL 参与签名）
-          // 通常应是本 SVG 页面在微信中实际访问的完整地址（不带 hash）
-          const FIXED_SIGN_URL = "https://h5.hlll.org/"; // ← 改成你当前页面的固定 URL
+          // 2) 你自己的后端“获取微信 JS-SDK 签名”的接口（POST JSON: {url:string}）
+          const WECHAT_SIGN_API = "https://api.tthaol.com/api/wechat/getJsapiTicket"; // ← 改成你的接口
 
-          /******************* 微信内置浏览器检测 & 屏蔽分享 *******************/
-          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
-          if (isWeChatBrowser && window.wxjs) {
-            // 调用你现有的签名接口，请确保后端根据 FIXED_SIGN_URL 生成签名
-            fetch("https://l.com/api/wechat/getJsapiTicket", {
+          // 3) 签名 URL 策略
+          //   true  = 用“当前外层页面”的地址参与签名（推荐，最不容易错）
+          //   false = 使用 FIXED_SIGN_URL_OVERRIDE 指定的固定地址参与签名
+          const SIGN_WITH_CURRENT_PAGE = true;
+          const FIXED_SIGN_URL_OVERRIDE = "https://你的签名固定域名/你的固定路径"; // 仅当上面设置为 false 时生效
+
+          /******************* 工具函数 *******************/
+          const inWeChat = /MicroMessenger/i.test(navigator.userAgent);
+          function currentPageSignUrl() {
+            // 去掉 query/hash，只保留协议+域名+路径
+            const u = new URL(location.href);
+            u.search = "";
+            u.hash = "";
+            return u.toString();
+          }
+          function parseWechatCallback() {
+            const usp = new URLSearchParams(location.search);
+            const code  = usp.get("code");
+            const state = usp.get("state");
+            if (!code || !state) return {isWechatCallback:false};
+            try {
+              const s = JSON.parse(state);
+              if (s && s.source === "wechat_login") {
+                return {isWechatCallback:true, code, state};
+              }
+            } catch(e){}
+            return {isWechatCallback:false};
+          }
+
+          // 安全的 postMessage 允许域（仅信任 iframe 源）
+          const ALLOWED_ORIGIN = new URL(FIXED_IFRAME_URL).origin;
+
+          // 如果微信 JS-SDK 可用，初始化并隐藏分享等菜单
+          (function initWxJSSDK(){
+            if (!inWeChat || typeof wx === "undefined") return;
+            // 选择用于签名的 URL
+            const signUrl = SIGN_WITH_CURRENT_PAGE ? currentPageSignUrl() : FIXED_SIGN_URL_OVERRIDE;
+
+            fetch(WECHAT_SIGN_API, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({ url: signUrl })
             })
             .then(r => r.json())
             .then(res => {
-              if (res && res.data) {
-                try {
-                  window.wxjs.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  window.wxjs.ready(() => {
-                    // 隐藏右上角分享等菜单
-                    window.wxjs.hideOptionMenu();
-                    window.wxjs.hideMenuItems({
-                      menuList: [
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                  window.wxjs.error(err => {
-                    console.error("微信 JS-SDK 初始化失败：", err);
-                  });
-                } catch (e) {
-                  console.error("wx.config 调用异常：", e);
-                }
-              } else {
-                console.error("微信签名接口返回异常：", res);
-              }
-            })
-            .catch(err => console.error("获取微信 JS-SDK 配置失败：", err));
-          }
-
-         
-          function checkWechatCallback() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-            const state = urlParams.get('state');
-            
-            if (code && state) {
+              if (!res || !res.data) { console.error("签名接口返回异常", res); return; }
               try {
-                const stateData = JSON.parse(state);
-                if (stateData.source === 'wechat_login') {
-                  return { code, state, isWechatCallback: true };
-                }
-              } catch (e) {
-               
-              }
-            }
-            return { isWechatCallback: false };
-          }
-
-         
-          (function loadIframe(){
-            const iframe = document.getElementById("dynamicIframe");
-            const callbackInfo = checkWechatCallback();
-            
-            let iframeUrl = FIXED_IFRAME_URL;
-            
-           
-            if (callbackInfo.isWechatCallback) {
-              const separator = iframeUrl.includes('?') ? '&' : '?';
-              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
-              
-            }
-            
-            iframe.src = iframeUrl;
-           
+                wx.config({
+                  debug: false,
+                  appId: res.data.appId,
+                  timestamp: res.data.timestamp,
+                  nonceStr: res.data.nonceStr,
+                  signature: res.data.signature,
+                  jsApiList: ["hideOptionMenu","hideMenuItems","closeWindow"]
+                });
+                wx.ready(() => {
+                  wx.hideOptionMenu();
+                  wx.hideMenuItems({
+                    menuList: [
+                      "menuItem:share:appMessage",
+                      "menuItem:share:timeline",
+                      "menuItem:copyUrl",
+                      "menuItem:openWithQQBrowser",
+                      "menuItem:openWithSafari"
+                    ]
+                  });
+                });
+                wx.error(err => console.error("wx.config 失败：", err));
+              } catch(e){ console.error("wx.config 调用异常：", e); }
+            })
+            .catch(err => console.error("获取签名失败：", err));
           })();
 
-         
-          window.addEventListener("message", function(event) {
-          
-            if (event?.data?.action === "redirect" && typeof event.data.url === "string") {
-              window.location.href = event.data.url;
+          // 组装并加载 iframe
+          (function loadIframe(){
+            const iframe = document.getElementById("dynamicIframe");
+            const cb = parseWechatCallback();
+            let url = FIXED_IFRAME_URL;
+
+            // 若是微信回调，且 state.source=wechat_login，则把 code/state 透传给子页
+            if (cb.isWechatCallback) {
+              const sep = url.includes("?") ? "&" : "?";
+              url += sep + "code=" + encodeURIComponent(cb.code) + "&state=" + encodeURIComponent(cb.state);
             }
-            
-            
-            if (event?.data?.action === "wechat_authorize" && typeof event.data.url === "string") {      
-              window.location.href = event.data.url;
+            iframe.src = url;
+          })();
+
+          // 收紧 postMessage：仅允许 iframe 源，且只允许跳去“同源 URL”
+          window.addEventListener("message", function(event){
+            if (event.origin !== ALLOWED_ORIGIN) return;
+            const data = event.data || {};
+            if (data.action === "redirect" && typeof data.url === "string") {
+              const u = new URL(data.url, location.href);
+              if (u.origin === ALLOWED_ORIGIN) {
+                // 只有当目标与 iframe 同源时才允许顶层跳转
+                window.location.href = u.href;
+              }
             }
+            // 如不需要“触发再次授权”，就不要实现 wechat_authorize 分支
           });
+
+          /******************* 额外提示（非代码部分）
+           * 1) 若 https://h5.hlll.org/ 无法被嵌入，请检查它的响应头：
+           *    X-Frame-Options / Content-Security-Policy(frame-ancestors)
+           *    需放行当前外层页面所在域名。
+           * 2) 若仍出现“回调后跳到主域”，一般是：
+           *    - 子页脚本尝试 top 跳转（已被 sandbox 阻止）；
+           *    - 你的后端回调自身 302 到主域（那就不应再包这一层页面）。
+           **************************************************/
         </script>
       </body>
     </html>
