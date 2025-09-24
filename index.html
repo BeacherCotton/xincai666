@@ -28,7 +28,7 @@
 
           const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
           if (isWeChatBrowser && window.wxjs) {
-            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
+            fetch("https://api.tl.com/api/wechat/getJsapiTicket", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ url: FIXED_SIGN_URL })
