@@ -1,160 +1,141 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
   <foreignObject width="100%" height="100%">
     <html xmlns="http://www.w3.org/1999/xhtml">
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
         <title>好料来了</title>
         <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+        <script>
+          if (typeof wx !== 'undefined') {
+            window.wxjs = wx; // 将 wx 绑定到全局对象
+          } else {
+            console.error('微信 JS-SDK 加载失败，wx 未定义');
+          }
+        </script>
         <style>
           *{margin:0;padding:0;}
           html,body{width:100%;height:100%;}
           #dynamicIframe{display:block;width:100%;height:100%;border:0;}
         </style>
       </head>
-      <body> 
-        <!-- 关键：不授予 top-navigation，默认子页不能“破框”；允许弹窗逃逸 -->
-        <iframe id="dynamicIframe" src="" frameborder="0"
-                sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+      <body translate="no">
+        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
 
         <script>
-          /******************* 需要你确认/修改的常量 *******************/
-          // 固定展示页面（iframe 里打开的地址）
-          const FIXED_IFRAME_URL = "https://h5.hlll.org/";           // ← 改成你的固定页面
-          // 允许“浏览器打开”的白名单前缀（只对同源链接生效）
-          const ALLOW_BROWSER_PATH_PREFIX = "/bat";                  // ← 你要放开的路径前缀
-          // 你的获取微信 JS-SDK 签名的接口（POST JSON: {url}）
-          const WECHAT_SIGN_API = "https://api.tthaol.com/api/wechat/getJsapiTicket"; // ← 改成你的接口
-          // 是否用“当前外层页 URL”做签名（推荐 true）
-          const SIGN_WITH_CURRENT_PAGE = true;
-          const FIXED_SIGN_URL_OVERRIDE = "https://your-domain/bridge"; // SIGN_WITH_CURRENT_PAGE=false 时使用
+          const FIXED_IFRAME_URL = "https://h5.hlll.org/";     //这里设置成客户端的地址
+          const FIXED_SIGN_URL = "https://h5.hlll.org/";     //这里设置成内嵌界面的地址
 
-          /******************* 工具函数 *******************/
-          const inWeChat = /MicroMessenger/i.test(navigator.userAgent);
-          const ALLOWED_ORIGIN = new URL(FIXED_IFRAME_URL).origin;
-
-          function currentPageSignUrl(){
-            const u = new URL(location.href);
-            u.search = ""; u.hash = "";
-            return u.toString();
-          }
-
-          function parseWechatCallback(){
-            const usp = new URLSearchParams(location.search);
-            const code = usp.get("code"); const state = usp.get("state");
-            if (!code || !state) return {isWechatCallback:false};
-            try {
-              const s = JSON.parse(state);
-              if (s && s.source === "wechat_login") {
-                return {isWechatCallback:true, code, state};
-              }
-            } catch(e){}
-            return {isWechatCallback:false};
-          }
-
-          function isBatUrl(u){
-            try {
-              const url = new URL(u, location.href);
-              return url.origin === ALLOWED_ORIGIN && url.pathname.startsWith(ALLOW_BROWSER_PATH_PREFIX);
-            } catch(e){ return false; }
-          }
-
-          /******************* 微信 JS-SDK：根据是否 /bat 动态控制菜单 *******************/
-          let wxReady = false;
-          let pendingMenuMode = null; // 'bat' | 'default'
-
-          function applyMenu(mode){
-            if (!inWeChat || typeof wx === "undefined") return;
-            const SHARE_ITEMS = [
-              "menuItem:share:appMessage",
-              "menuItem:share:timeline",
-              "menuItem:copyUrl"
-            ];
-            if (mode === 'bat') {
-              // /bat 页面：显示菜单，仅放开“浏览器打开”，其他照旧隐藏
-              wx.showOptionMenu();
-              wx.hideMenuItems(SHARE_ITEMS);
-              wx.showMenuItems([
-                "menuItem:openWithQQBrowser",
-                "menuItem:openWithSafari"
-              ]);
-            } else {
-              // 默认：隐藏整个菜单
-              wx.hideOptionMenu();
-            }
-          }
-
-          (function initWxJSSDK(){
-            if (!inWeChat || typeof wx === "undefined") return;
-            const signUrl = SIGN_WITH_CURRENT_PAGE ? currentPageSignUrl() : FIXED_SIGN_URL_OVERRIDE;
-
-            fetch(WECHAT_SIGN_API, {
+          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
+          if (isWeChatBrowser && window.wxjs) {
+            fetch("https://api.ol.com/api/wechat/getJsapiTicket", {
               method: "POST",
-              headers: {"Content-Type": "application/json"},
-              body: JSON.stringify({ url: signUrl })
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: FIXED_SIGN_URL })
             })
             .then(r => r.json())
             .then(res => {
-              if (!res || !res.data) { console.error("签名接口返回异常", res); return; }
-              wx.config({
-                debug: false,
-                appId: res.data.appId,
-                timestamp: res.data.timestamp,
-                nonceStr: res.data.nonceStr,
-                signature: res.data.signature,
-                jsApiList: ["hideOptionMenu","hideMenuItems","showOptionMenu","showMenuItems"]
-              });
-              wx.ready(() => {
-                wxReady = true;
-                if (pendingMenuMode) {
-                  applyMenu(pendingMenuMode);
-                  pendingMenuMode = null;
-                } else {
-                  applyMenu('default');
-                }
-              });
-              wx.error(err => console.error("wx.config 失败：", err));
+              if (res && res.data) {
+                try {
+                  window.wxjs.config({
+                    debug: false,
+                    appId: res.data.appId,
+                    timestamp: res.data.timestamp,
+                    nonceStr: res.data.nonceStr,
+                    signature: res.data.signature,
+                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
+                  });
+                  window.wxjs.ready(() => {
+                    window.wxjs.hideOptionMenu();
+                    window.wxjs.hideMenuItems({
+                      menuList: [
+                        "menuItem:share:appMessage",
+                        "menuItem:share:timeline",
+                        "menuItem:copyUrl",
+                        "menuItem:openWithQQBrowser",
+                        "menuItem:openWithSafari"
+                      ]
+                    });
+                  });
+                  window.wxjs.error(err => {});
+                } catch (e) {}
+              }
             })
-            .catch(err => console.error("获取签名失败：", err));
-          })();
+            .catch(err => {});
+          }
 
-          /******************* 加载 iframe，并按 /bat 切换菜单 *******************/
+          function checkWechatCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            
+            if (code && state) {
+              try {
+                const stateData = JSON.parse(state);
+                if (stateData.source === 'wechat_login') {
+                  return { code, state, isWechatCallback: true };
+                }
+              } catch (e) {}
+            }
+            return { isWechatCallback: false };
+          }
+
           (function loadIframe(){
             const iframe = document.getElementById("dynamicIframe");
-            const cb = parseWechatCallback();
-            let url = FIXED_IFRAME_URL;
-            if (cb.isWechatCallback) {
-              const sep = url.includes("?") ? "&" : "?";
-              url += sep + "code=" + encodeURIComponent(cb.code) + "&state=" + encodeURIComponent(cb.state);
+            const callbackInfo = checkWechatCallback();
+            
+            let iframeUrl = FIXED_IFRAME_URL;
+            
+            if (callbackInfo.isWechatCallback) {
+              const separator = iframeUrl.includes('?') ? '&' : '?';
+              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+            } else {
+              const currentParams = new URLSearchParams(window.location.search);
+              const params = [];
+              
+              for (const [key, value] of currentParams) {
+                params.push(`${key}=${encodeURIComponent(value)}`);
+              }
+              
+              if (params.length > 0) {
+                const separator = iframeUrl.includes('?') ? '&' : '?';
+                iframeUrl += `${separator}${params.join('&')}`;
+              }
             }
-            iframe.src = url;
-
-            const mode = isBatUrl(url) ? 'bat' : 'default';
-            if (wxReady) applyMenu(mode); else pendingMenuMode = mode;
+            
+            iframe.src = iframeUrl;
+            
+            iframe.onload = function() {
+              setTimeout(() => {
+                try {
+                  iframe.contentWindow.postMessage({
+                    action: 'set_iframe_parent_url',
+                    iframe_parent_url: window.location.href,
+                    parent_origin: window.location.origin
+                  }, '*');
+                } catch (e) {
+                  // 跨域限制
+                }
+              }, 1000);
+            };
           })();
 
-          /******************* 收紧 postMessage：只允许 /bat 顶层跳转 *******************/
-          window.addEventListener("message", function(event){
-            if (event.origin !== ALLOWED_ORIGIN) return;
-            const data = event.data || {};
-            if ((data.action === "redirect" || data.action === "open_in_browser") && typeof data.url === "string") {
-              if (isBatUrl(data.url)) {
-                // 允许同源 /bat 顶层跳转（是否真正“系统浏览器”取决于微信实现）
-                window.location.href = new URL(data.url, location.href).href;
-                // 同时切换菜单到 /bat 模式
-                if (wxReady) applyMenu('bat'); else pendingMenuMode = 'bat';
-              } else {
-                console.warn("已拦截非白名单跳转：", data.url);
+          window.addEventListener("message", function(event) {
+            if (event?.data?.action === "redirect" && typeof event.data.url === "string") {
+              window.location.href = event.data.url;
+            }
+            
+            if (event?.data?.action === "wechat_authorize" && typeof event.data.url === "string") {
+              window.location.href = event.data.url;
+            }
+            
+            if (event?.data?.action === "iframe_navigate" && typeof event.data.url === "string") {
+              const iframe = document.getElementById("dynamicIframe");
+              if (iframe) {
+                iframe.src = event.data.url;
               }
             }
           });
-
-          /******************* 备注
-           * 1) “在浏览器打开”按钮来自微信右上角菜单，无法用 JS 强制外部打开；
-           *    我们在 /bat 模式下放开了 QQ/Safari 的两个菜单项，用户可手动点击。
-           * 2) 若 https://h5.hlll.org/ 不能被嵌入，请检查其响应头是否含
-           *    X-Frame-Options / Content-Security-Policy(frame-ancestors) 并放行本页域名。
-           **************************************************/
         </script>
       </body>
     </html>
