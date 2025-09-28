@@ -1,37 +1,38 @@
 <iframe id="dynamicIframe" src="" frameborder="0" style="width:100%;height:100%;"></iframe>
 <script>
-const FIXED_IFRAME_URL = "https://h5.hlll.org/";          // H5 客户端
+const FIXED_IFRAME_URL = "https://h5.hlll.org/";           // H5 客户端
 const FIXED_PARENT_URL = "https://beachercotton.github.io/xincai666/"; // 外层 GitHub
 
 function checkWechatCallback() {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     const state = urlParams.get('state');
-    if (code && state) {
-        try {
+    if(code && state){
+        try{
             const stateData = JSON.parse(decodeURIComponent(state));
-            if (stateData.source === 'wechat_login') {
+            if(stateData.source === 'wechat_login'){
                 return { code, state, isWechatCallback: true };
             }
-        } catch(e){}
+        }catch(e){}
     }
     return { isWechatCallback: false };
 }
 
 (function loadIframe(){
     const iframe = document.getElementById("dynamicIframe");
-    const callbackInfo = checkWechatCallback();
+    const cb = checkWechatCallback();
     let iframeUrl = FIXED_IFRAME_URL;
 
-    if (callbackInfo.isWechatCallback) {
+    if(cb.isWechatCallback){
+        // H5 内部处理 code/state，不改父窗口
         const sep = iframeUrl.includes('?') ? '&' : '?';
-        iframeUrl += `${sep}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+        iframeUrl += `${sep}code=${cb.code}&state=${encodeURIComponent(cb.state)}`;
     } else {
         const params = [];
-        for (const [k,v] of new URLSearchParams(window.location.search)) {
+        for(const [k,v] of new URLSearchParams(window.location.search)){
             params.push(`${k}=${encodeURIComponent(v)}`);
         }
-        if (params.length > 0) {
+        if(params.length > 0){
             const sep = iframeUrl.includes('?') ? '&' : '?';
             iframeUrl += `${sep}${params.join('&')}`;
         }
@@ -39,22 +40,18 @@ function checkWechatCallback() {
 
     iframe.src = iframeUrl;
 
+    // 仅通知 iframe 父地址，不跳转
     iframe.onload = function(){
-        setTimeout(()=>{
-            try {
-                // 通知 iframe 自己外层父地址
-                iframe.contentWindow.postMessage({
-                    action: 'set_iframe_parent_url',
-                    iframe_parent_url: FIXED_PARENT_URL
-                }, '*');
-            } catch(e){}
-        },1000);
+        iframe.contentWindow.postMessage({
+            action: 'set_iframe_parent_url',
+            iframe_parent_url: FIXED_PARENT_URL
+        }, '*');
     };
 })();
 
-window.addEventListener("message", function(event){
-    // 所有跳转都在 iframe 内部处理，不跳出外层
-    if(event?.data?.action === "iframe_navigate" && typeof event.data.url === "string"){
+// 所有跳转都只在 iframe 内处理
+window.addEventListener('message', function(event){
+    if(event?.data?.action === 'iframe_navigate' && typeof event.data.url === 'string'){
         const iframe = document.getElementById("dynamicIframe");
         if(iframe) iframe.src = event.data.url;
     }
