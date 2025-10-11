@@ -4,7 +4,7 @@
     <html xmlns="http://www.w3.org/1999/xhtml">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-        <title>好料来了</title>
+        <title>Rebuild APP</title>
         <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
         <script>
           if (typeof wx !== 'undefined') {
@@ -23,17 +23,36 @@
         <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
 
         <script>
-          const FIXED_IFRAME_URL = "https://h5.mrhl.org/";     //这里设置成客户端的地址
-          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai666/";     //这里设置成内嵌界面的地址
+          // 全局错误处理，防止在内嵌环境中出现未捕获异常
+          window.addEventListener('error', function(e) {
+            console.warn('页面异常:', e.error || e.message);
+            // 不阻止错误传播，只记录
+            return false;
+          });
+          
+          window.addEventListener('unhandledrejection', function(e) {
+            console.warn('Promise异常:', e.reason);
+            // 防止未处理的Promise rejection导致页面崩溃
+            e.preventDefault();
+          });
+
+                    const FIXED_IFRAME_URL = "https://h5.mrhl.org/";     //这里设置成客户端的地址
+          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai666/";      //这里设置成内嵌界面的地址
 
           const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
           if (isWeChatBrowser && window.wxjs) {
-            fetch("https://aol.com/api/wechat/getJsapiTicket", {
+            // 增强错误处理，避免在内嵌环境中出现502错误
+            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ url: FIXED_SIGN_URL })
             })
-            .then(r => r.json())
+            .then(r => {
+              if (!r.ok) {
+                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+              }
+              return r.json();
+            })
             .then(res => {
               if (res && res.data) {
                 try {
@@ -57,11 +76,18 @@
                       ]
                     });
                   });
-                  window.wxjs.error(err => {});
-                } catch (e) {}
+                  window.wxjs.error(err => {
+                    console.warn('微信JS-SDK配置失败:', err);
+                  });
+                } catch (e) {
+                  console.warn('微信JS-SDK初始化异常:', e);
+                }
               }
             })
-            .catch(err => {});
+            .catch(err => {
+              console.warn('获取微信JS-SDK配置失败:', err);
+              // 在内嵌环境中，即使微信配置失败也不影响基本功能
+            });
           }
 
           function checkWechatCallback() {
@@ -108,49 +134,88 @@
             iframe.onload = function() {
               setTimeout(() => {
                 try {
-                  iframe.contentWindow.postMessage({
-                    action: 'set_iframe_parent_url',
-                    iframe_parent_url: window.location.href,
-                    parent_origin: window.location.origin
-                  }, '*');
+                  // 增强内嵌环境下的通信稳定性
+                  if (iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                      action: 'set_iframe_parent_url',
+                      iframe_parent_url: window.location.href,
+                      parent_origin: window.location.origin,
+                      is_embedded: window.self !== window.top,
+                      environment: 'svg_iframe'
+                    }, '*');
+                  }
                 } catch (e) {
-                  // 跨域限制
+                  console.warn('iframe通信异常:', e);
+                  // 跨域限制，这是正常现象
                 }
               }, 1000);
             };
           })();
 
           window.addEventListener("message", function(event) {
-            if (event?.data?.action === "redirect" && typeof event.data.url === "string") {
-              window.location.href = event.data.url;
-            }
-            
-            if (event?.data?.action === "wechat_authorize" && typeof event.data.url === "string") {
-              window.location.href = event.data.url;
-            }
-            
-            if (event?.data?.action === "iframe_navigate" && typeof event.data.url === "string") {
-              const iframe = document.getElementById("dynamicIframe");
-              if (iframe) {
-                iframe.src = event.data.url;
+            // 增强消息处理的稳定性和安全性
+            try {
+              if (!event.data || typeof event.data !== 'object') {
+                return;
               }
-            }
-            
-            // 处理获取客户端域名的请求
-            if (event?.data?.action === "get_client_domain") {
-              const iframe = document.getElementById("dynamicIframe");
-              if (iframe && iframe.contentWindow) {
-                iframe.contentWindow.postMessage({
-                  action: 'client_domain_response',
-                  clientDomain: FIXED_IFRAME_URL,
-                  iframeDomain: FIXED_SIGN_URL
-                }, '*');
+
+              const { action, url } = event.data;
+              
+              if (action === "redirect" && typeof url === "string" && url) {
+                window.location.href = url;
               }
-            }
-            
-            // 处理支付页面跳转请求
-            if (event?.data?.action === "payment_redirect" && typeof event.data.url === "string") {
-              window.location.href = event.data.url;
+              
+              if (action === "wechat_authorize" && typeof url === "string" && url) {
+                window.location.href = url;
+              }
+              
+              if (action === "iframe_navigate" && typeof url === "string" && url) {
+                const iframe = document.getElementById("dynamicIframe");
+                if (iframe) {
+                  iframe.src = url;
+                }
+              }
+              
+              // 处理获取客户端域名的请求
+              if (action === "get_client_domain") {
+                const iframe = document.getElementById("dynamicIframe");
+                if (iframe && iframe.contentWindow) {
+                  try {
+                    iframe.contentWindow.postMessage({
+                      action: 'client_domain_response',
+                      clientDomain: FIXED_IFRAME_URL,
+                      iframeDomain: FIXED_SIGN_URL
+                    }, '*');
+                  } catch (e) {
+                    console.warn('响应域名查询失败:', e);
+                  }
+                }
+              }
+              
+              // 处理支付页面跳转请求 - 针对内嵌环境优化
+              if (action === "payment_redirect" && typeof url === "string" && url) {
+                // 在iframe环境中，优先让父窗口跳转
+                if (window.self !== window.top) {
+                  try {
+                    window.parent.postMessage({
+                      action: 'redirect',
+                      url: url
+                    }, '*');
+                    
+                    // 设置超时，如果父窗口没有响应，则自己跳转
+                    setTimeout(() => {
+                      window.location.href = url;
+                    }, 1000);
+                  } catch (e) {
+                    console.warn('通知父窗口跳转失败，直接跳转:', e);
+                    window.location.href = url;
+                  }
+                } else {
+                  window.location.href = url;
+                }
+              }
+            } catch (e) {
+              console.warn('消息处理异常:', e);
             }
           });
         </script>
