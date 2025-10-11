@@ -6,95 +6,222 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
         <title>好料来了</title>
         <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <script>
-          if (typeof wx !== 'undefined') {
-            window.wxjs = wx; // 将 wx 绑定到全局对象
-          } else {
-            console.error('微信 JS-SDK 加载失败，wx 未定义');
-          }
-        </script>
         <style>
           *{margin:0;padding:0;}
-          html,body{width:100%;height:100%;}
+          html,body{width:100%;height:100%;background:#fff;}
           #dynamicIframe{display:block;width:100%;height:100%;border:0;}
+          /* 清理按钮样式 */
+          #clearCacheBtn {
+            position: fixed;
+            right: 14px;
+            bottom: 14px;
+            z-index: 999999;
+            background: rgba(0,0,0,0.6);
+            color: #fff;
+            border: none;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+          }
+          #clearCacheBtn:active { transform: translateY(1px); }
+          #clearCacheToast {
+            position: fixed;
+            right: 14px;
+            bottom: 64px;
+            z-index: 999999;
+            background: rgba(0,0,0,0.75);
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            display: none;
+          }
         </style>
       </head>
       <body translate="no">
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
+        <iframe id="dynamicIframe" src="" frameborder="0" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+
+        <button id="clearCacheBtn" title="清理缓存并重新加载">清理缓存</button>
+        <div id="clearCacheToast">已清理缓存</div>
 
         <script>
+          // ========== 配置区 ==========
+          const FIXED_IFRAME_URL = "https://hl.org/";     // 这里设置成客户端的地址（iframe 将加载此地址）
+          const FIXED_SIGN_URL = "https://beacher66/";   // 这里设置成用于 JS-SDK 签名的地址（示例）
+          const CLEAR_BEFORE_IFRAME_LOAD = false;        // 如果 true，每次加载 iframe 前都先清理缓存
+          // ============================
+
+          // 安全：微信 SDK 绑定（若已加载）
+          if (typeof wx !== 'undefined') {
+            window.wxjs = wx;
+          }
+
           // 全局错误处理，防止在内嵌环境中出现未捕获异常
           window.addEventListener('error', function(e) {
             console.warn('页面异常:', e.error || e.message);
-            // 不阻止错误传播，只记录
             return false;
           });
-          
           window.addEventListener('unhandledrejection', function(e) {
             console.warn('Promise异常:', e.reason);
-            // 防止未处理的Promise rejection导致页面崩溃
             e.preventDefault();
           });
 
-                    const FIXED_IFRAME_URL = "https://h5.mrhl.org/";     //这里设置成客户端的地址
-          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai666/";      //这里设置成内嵌界面的地址
-
-          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
-          if (isWeChatBrowser && window.wxjs) {
-            // 增强错误处理，避免在内嵌环境中出现502错误
-            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
-            })
-            .then(r => {
-              if (!r.ok) {
-                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-              }
-              return r.json();
-            })
-            .then(res => {
-              if (res && res.data) {
-                try {
-                  window.wxjs.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  window.wxjs.ready(() => {
-                    window.wxjs.hideOptionMenu();
-                    window.wxjs.hideMenuItems({
-                      menuList: [
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                  window.wxjs.error(err => {
-                    console.warn('微信JS-SDK配置失败:', err);
-                  });
-                } catch (e) {
-                  console.warn('微信JS-SDK初始化异常:', e);
-                }
-              }
-            })
-            .catch(err => {
-              console.warn('获取微信JS-SDK配置失败:', err);
-              // 在内嵌环境中，即使微信配置失败也不影响基本功能
-            });
+          // show toast
+          function showToast(msg = '已清理缓存', ms = 1500) {
+            try {
+              const t = document.getElementById('clearCacheToast');
+              t.textContent = msg;
+              t.style.display = 'block';
+              setTimeout(() => { t.style.display = 'none'; }, ms);
+            } catch(e) {}
           }
 
+          // 删除所有非 HttpOnly cookie（通过设置过期）
+          function clearCookies() {
+            try {
+              const cookies = document.cookie.split(";") || [];
+              for (let c of cookies) {
+                const idx = c.indexOf("=");
+                const name = idx > -1 ? c.substr(0, idx).trim() : c.trim();
+                if (name) {
+                  // 设为过期，并尽量在常见路径/域上清理（但不能保证删除所有）
+                  document.cookie = name + "=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+                  document.cookie = name + "=; Path=/; Domain=" + location.hostname + "; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+                }
+              }
+              console.info('Cookies 清理尝试完成（HttpOnly cookie 无法被 JS 删除）');
+            } catch (e) {
+              console.warn('clearCookies error', e);
+            }
+          }
+
+          // 清除 Cache Storage（Service Worker 缓存）
+          async function clearCacheStorage() {
+            if (!('caches' in window)) return;
+            try {
+              const keys = await caches.keys();
+              for (const k of keys) {
+                try { await caches.delete(k); } catch(e) { console.warn('删除 cache key 失败', k, e); }
+              }
+              console.info('CacheStorage 清理完成');
+            } catch (e) {
+              console.warn('clearCacheStorage error', e);
+            }
+          }
+
+          // 删除 IndexedDB 尝试（部分浏览器限制）
+          async function clearIndexedDB() {
+            if (!('indexedDB' in window)) return;
+            try {
+              if (indexedDB.databases) {
+                const dbs = await indexedDB.databases();
+                for (const db of dbs) {
+                  try { indexedDB.deleteDatabase(db.name); } catch(e) { console.warn('删除 indexedDB 失败', db.name, e); }
+                }
+              } else {
+                // 回退：尝试删除常见名或保守跳过
+                console.info('浏览器不支持 indexedDB.databases()，跳过批量删除');
+              }
+            } catch (e) {
+              console.warn('clearIndexedDB error', e);
+            }
+          }
+
+          // 主清理函数：localStorage / sessionStorage / cookie / cache / indexeddb
+          async function clearAllClientCaches(options = { showToast: true }) {
+            try {
+              // localStorage & sessionStorage
+              try { localStorage.clear(); console.info('localStorage cleared'); } catch(e) { console.warn('localStorage clear failed', e); }
+              try { sessionStorage.clear(); console.info('sessionStorage cleared'); } catch(e) { console.warn('sessionStorage clear failed', e); }
+
+              // cookies
+              clearCookies();
+
+              // Cache Storage
+              await clearCacheStorage();
+
+              // IndexedDB
+              await clearIndexedDB();
+
+              if (options.showToast) showToast('缓存已清理');
+              console.info('全部前端缓存清理完成');
+              return true;
+            } catch (e) {
+              console.warn('clearAllClientCaches error', e);
+              if (options.showToast) showToast('清理失败，请查看控制台');
+              return false;
+            }
+          }
+
+          // 解析 URL 参数，判断是否触发清理
+          function checkAndMaybeClearOnLoad() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const clearParam = urlParams.get('clearcache') || urlParams.get('clearCache') || urlParams.get('clear');
+            if (clearParam === '1' || clearParam === 'true') {
+              // 自动清理并在清理完成后继续
+              return clearAllClientCaches({ showToast: true });
+            }
+            return Promise.resolve(false);
+          }
+
+          // 小工具：在加载 iframe 前可选清理（根据 CLEAR_BEFORE_IFRAME_LOAD）
+          async function maybeClearBeforeIframeLoad() {
+            if (CLEAR_BEFORE_IFRAME_LOAD) {
+              await clearAllClientCaches({ showToast: false });
+            }
+          }
+
+          // ========== 微信 JS-SDK 初始化（保持原逻辑） ==========
+          (function initWeChatSdk() {
+            const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
+            if (isWeChatBrowser && typeof window.wxjs !== 'undefined') {
+              fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: FIXED_SIGN_URL })
+              })
+              .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+              .then(res => {
+                if (res && res.data) {
+                  try {
+                    window.wxjs.config({
+                      debug: false,
+                      appId: res.data.appId,
+                      timestamp: res.data.timestamp,
+                      nonceStr: res.data.nonceStr,
+                      signature: res.data.signature,
+                      jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
+                    });
+                    window.wxjs.ready(() => {
+                      window.wxjs.hideOptionMenu();
+                      window.wxjs.hideMenuItems({
+                        menuList: [
+                          "menuItem:share:appMessage",
+                          "menuItem:share:timeline",
+                          "menuItem:copyUrl",
+                          "menuItem:openWithQQBrowser",
+                          "menuItem:openWithSafari"
+                        ]
+                      });
+                    });
+                    window.wxjs.error(err => { console.warn('微信JS-SDK配置失败:', err); });
+                  } catch (e) {
+                    console.warn('微信JS-SDK初始化异常:', e);
+                  }
+                }
+              })
+              .catch(err => { console.warn('获取微信JS-SDK配置失败:', err); });
+            }
+          })();
+          // ====================================================
+
+          // 检查是否为微信授权回调（保留原逻辑）
           function checkWechatCallback() {
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const state = urlParams.get('state');
-            
             if (code && state) {
               try {
                 const stateData = JSON.parse(state);
@@ -106,35 +233,43 @@
             return { isWechatCallback: false };
           }
 
-          (function loadIframe(){
+          // 加载 iframe（主流程）
+          (async function loadIframe(){
+            // 1) 若 URL 带 clearcache，先清理
+            await checkAndMaybeClearOnLoad();
+
+            // 2) 可选：在每次加载前清理（由 CLEAR_BEFORE_IFRAME_LOAD 控制）
+            await maybeClearBeforeIframeLoad();
+
+            // 3) 构造 iframe URL（保留原始 param 透传）
             const iframe = document.getElementById("dynamicIframe");
             const callbackInfo = checkWechatCallback();
-            
             let iframeUrl = FIXED_IFRAME_URL;
-            
+
             if (callbackInfo.isWechatCallback) {
               const separator = iframeUrl.includes('?') ? '&' : '?';
               iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
             } else {
               const currentParams = new URLSearchParams(window.location.search);
               const params = [];
-              
               for (const [key, value] of currentParams) {
+                // 避免把 clearcache 参数重复透传
+                if (key === 'clearcache' || key === 'clearCache' || key === 'clear') continue;
                 params.push(`${key}=${encodeURIComponent(value)}`);
               }
-              
               if (params.length > 0) {
                 const separator = iframeUrl.includes('?') ? '&' : '?';
                 iframeUrl += `${separator}${params.join('&')}`;
               }
             }
-            
+
+            // 给 iframe 设置 src（sandbox 属性已设置以提高安全性）
             iframe.src = iframeUrl;
-            
+
+            // iframe onload 后尝试通信
             iframe.onload = function() {
               setTimeout(() => {
                 try {
-                  // 增强内嵌环境下的通信稳定性
                   if (iframe.contentWindow) {
                     iframe.contentWindow.postMessage({
                       action: 'set_iframe_parent_url',
@@ -146,66 +281,42 @@
                   }
                 } catch (e) {
                   console.warn('iframe通信异常:', e);
-                  // 跨域限制，这是正常现象
                 }
-              }, 1000);
+              }, 600);
             };
           })();
 
+          // postMessage 处理（保留且增强）
           window.addEventListener("message", function(event) {
-            // 增强消息处理的稳定性和安全性
             try {
-              if (!event.data || typeof event.data !== 'object') {
-                return;
-              }
-
+              if (!event.data || typeof event.data !== 'object') return;
               const { action, url } = event.data;
-              
+
               if (action === "redirect" && typeof url === "string" && url) {
                 window.location.href = url;
               }
-              
               if (action === "wechat_authorize" && typeof url === "string" && url) {
                 window.location.href = url;
               }
-              
               if (action === "iframe_navigate" && typeof url === "string" && url) {
                 const iframe = document.getElementById("dynamicIframe");
-                if (iframe) {
-                  iframe.src = url;
-                }
+                if (iframe) iframe.src = url;
               }
-              
-              // 处理获取客户端域名的请求
               if (action === "get_client_domain") {
                 const iframe = document.getElementById("dynamicIframe");
                 if (iframe && iframe.contentWindow) {
-                  try {
-                    iframe.contentWindow.postMessage({
-                      action: 'client_domain_response',
-                      clientDomain: FIXED_IFRAME_URL,
-                      iframeDomain: FIXED_SIGN_URL
-                    }, '*');
-                  } catch (e) {
-                    console.warn('响应域名查询失败:', e);
-                  }
+                  iframe.contentWindow.postMessage({
+                    action: 'client_domain_response',
+                    clientDomain: FIXED_IFRAME_URL,
+                    iframeDomain: FIXED_SIGN_URL
+                  }, '*');
                 }
               }
-              
-              // 处理支付页面跳转请求 - 针对内嵌环境优化
               if (action === "payment_redirect" && typeof url === "string" && url) {
-                // 在iframe环境中，优先让父窗口跳转
                 if (window.self !== window.top) {
                   try {
-                    window.parent.postMessage({
-                      action: 'redirect',
-                      url: url
-                    }, '*');
-                    
-                    // 设置超时，如果父窗口没有响应，则自己跳转
-                    setTimeout(() => {
-                      window.location.href = url;
-                    }, 1000);
+                    window.parent.postMessage({ action: 'redirect', url: url }, '*');
+                    setTimeout(() => { window.location.href = url; }, 1000);
                   } catch (e) {
                     console.warn('通知父窗口跳转失败，直接跳转:', e);
                     window.location.href = url;
@@ -218,6 +329,30 @@
               console.warn('消息处理异常:', e);
             }
           });
+
+          // 右下角清理按钮逻辑（手动触发）
+          document.getElementById('clearCacheBtn').addEventListener('click', async function() {
+            const btn = this;
+            btn.disabled = true;
+            btn.textContent = '清理中...';
+            try {
+              await clearAllClientCaches({ showToast: true });
+              // 选项：清理后重新加载 iframe（或整页）
+              const iframe = document.getElementById('dynamicIframe');
+              if (iframe) {
+                // 重新加载 iframe（避免重复 append clear 参数）
+                iframe.src = iframe.src;
+              } else {
+                location.reload();
+              }
+            } catch (e) {
+              console.warn('手动清理异常', e);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = '清理缓存';
+            }
+          });
+
         </script>
       </body>
     </html>
