@@ -3,27 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>唤醒支付 — 二维码弹窗</title>
+<title>支付二维码 — 长按识别</title>
 <style>
   :root{--bg:#ffffff;--accent:#09bb07;--muted:#666;}
-  body{font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", Arial; margin:0; background:var(--bg); color:#222;}
-  .wrap{max-width:900px;margin:28px auto;padding:16px;}
-  h1{font-size:18px;margin:0 0 10px;}
+  *{box-sizing:border-box}
+  body{font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft Yahei", Arial; margin:0; background:var(--bg); color:#222;}
+  .wrap{max-width:920px;margin:24px auto;padding:18px;}
+  h1{font-size:18px;margin:0 0 8px;}
   p{margin:6px 0;color:var(--muted);font-size:14px;}
-  input[type="text"]{width:100%;box-sizing:border-box;padding:10px;border:1px solid #e6e6e6;border-radius:8px;margin-top:8px;font-size:14px;}
-  .btn{display:inline-block;padding:10px 14px;background:var(--accent);color:#fff;border-radius:8px;border:0;cursor:pointer;margin-top:12px;font-size:15px;}
-  .btn.secondary{background:#eee;color:#333;margin-left:8px;}
+  label{font-size:13px;color:#333}
+  input[type="text"]{width:100%;padding:10px;border:1px solid #e6e6e6;border-radius:8px;margin-top:8px;font-size:14px;}
+  .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .btn{display:inline-block;padding:10px 14px;background:var(--accent);color:#fff;border-radius:8px;border:0;cursor:pointer;font-size:15px;}
+  .btn.secondary{background:#f3f3f3;color:#333;border:1px solid #e6e6e6;}
+  .small{font-size:13px;color:var(--muted);margin-top:10px;}
   /* modal */
   .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;}
   .modal{width:100%;max-width:420px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.3);text-align:center;}
-  .modal-header{padding:14px 16px;border-bottom:1px solid #f1f1f1;background:#fafafa;}
-  .modal-header .title{font-weight:600;font-size:16px;}
-  .modal-header .subtitle{font-size:13px;color:var(--muted);margin-top:6px;}
+  .modal-header{padding:14px 16px;border-bottom:1px solid #f1f1f1;background:#fff;}
+  .modal-header .title{font-weight:700;font-size:17px;color:#222;}
+  .modal-header .subtitle{font-size:13px;color:#ff4d4f;margin-top:8px;}
   .modal-body{padding:18px;}
-  .qr-img{display:block;margin:6px auto;border-radius:8px;background:#fff;}
-  .modal-actions{padding:12px 16px;border-top:1px solid #f1f1f1;display:flex;gap:8px;justify-content:center;}
-  .small{font-size:13px;color:var(--muted);}
-  .copy-tip{font-size:13px;color:#999;margin-top:8px;}
+  .qr-img{display:block;margin:6px auto;border-radius:8px;background:#fff;width:260px;height:260px;object-fit:contain;}
+  .modal-actions{padding:12px 16px;border-top:1px solid #f1f1f1;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+  .copy-tip{font-size:13px;color:#999;margin-top:8px;word-break:break-all;}
   .hidden{display:none!important;}
   @media (max-width:420px){
     .modal{max-width:340px}
@@ -34,29 +37,29 @@
 <body>
   <div class="wrap">
     <h1>生成支付二维码（长按识别）</h1>
-    <p>把支付深度链接粘贴到下方，然后点击“显示支付二维码”。在微信中可长按识别二维码完成支付。</p>
+    <p class="small">把平台返回的支付链接粘贴到下方（支持带转义的字符串如 <code>weixin:\/\/wxpay\/bizpayurl?pr=xxx</code>），页面会自动规范化并生成二维码。推荐在微信或手机浏览器中使用长按识别。</p>
 
     <label for="payLink">支付链接（示例）</label>
-    <input id="payLink" type="text" value="weixin://wxpay/bizpayurl?pr=hwXlqMGz1" />
+    <input id="payLink" type="text" value="weixin:\/\/wxpay\/bizpayurl?pr=hwXlqMGz1" placeholder="粘贴 weixin://... 或 https://... 链接" />
 
-    <div style="margin-top:12px;">
+    <div class="row">
       <button class="btn" id="showBtn">显示支付二维码</button>
-      <button class="btn secondary" id="openRawBtn">直接在浏览器尝试打开链接</button>
+      <button class="btn secondary" id="openRawBtn">尝试直接打开链接</button>
+      <button class="btn secondary" id="clearBtn">清除</button>
     </div>
 
-    <p class="small" style="margin-top:12px;">提示：若你在微信内，优先使用 JSAPI 调用支付；此二维码为回退方式，适用于「长按识别二维码」支付场景。</p>
+    <p class="small">提示：若你在微信内且有后端 JSAPI 支付能力，请优先使用 <code>wx.chooseWXPay</code>；二维码为回退方式。</p>
   </div>
 
   <!-- Modal -->
-  <div class="modal-mask" id="modal">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-mask" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal" role="document">
       <div class="modal-header">
         <div class="title" id="modalTitle">长按识别二维码支付</div>
-        <div class="subtitle">如果无法识别，请截屏并在微信中选择「识别图中二维码」</div>
+        <div class="subtitle">请长按二维码并选择「识别图中二维码」或「保存图片」后在微信中打开</div>
       </div>
       <div class="modal-body" id="modalBody">
-        <!-- QR img will be inserted -->
-        <img id="qrImg" class="qr-img" alt="支付二维码" width="260" height="260" />
+        <img id="qrImg" class="qr-img" alt="支付二维码" />
         <div class="copy-tip" id="linkText"></div>
       </div>
       <div class="modal-actions">
@@ -71,6 +74,7 @@
 (function(){
   const showBtn = document.getElementById('showBtn');
   const openRawBtn = document.getElementById('openRawBtn');
+  const clearBtn = document.getElementById('clearBtn');
   const payLinkInput = document.getElementById('payLink');
   const modal = document.getElementById('modal');
   const qrImg = document.getElementById('qrImg');
@@ -79,121 +83,96 @@
   const downloadBtn = document.getElementById('downloadBtn');
   const linkText = document.getElementById('linkText');
 
-  // Basic sanitize: remove backslashes and whitespace
+  // Normalize input: remove backslashes, trim
   function normalizeLink(s){
     if (!s) return '';
     return String(s).replace(/\\+/g, '').trim();
   }
 
-  function isWeixinScheme(link){
-    return /^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(link);
+  // Basic validation: allow weixin://... or http(s)://...
+  function validateLink(link){
+    if (!link) return false;
+    if (/^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(link)) return true;
+    if (/^https?:\/\//i.test(link)) return true;
+    return false;
   }
 
-  function showModal(){
-    modal.style.display = 'flex';
-  }
-  function hideModal(){
-    modal.style.display = 'none';
-  }
-
-  // Use Google Chart API for QR generation (fast). If you want local generation, replace this.
+  // Use qrserver (reliable)
   function qrUrlFor(text, size = 520){
-    return 'https://chart.googleapis.com/chart?cht=qr&chs=' + size + 'x' + size + '&chld=L|1&chl=' + encodeURIComponent(text);
+    return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
   }
 
-  // Download image helper (from an image src)
+  function showModal(){ modal.style.display = 'flex'; }
+  function hideModal(){ modal.style.display = 'none'; }
+
+  // Download image from URL (blob) to file
   function downloadImageFromUrl(url, filename){
-    fetch(url).then(r => r.blob()).then(blob => {
+    fetch(url).then(r => {
+      if (!r.ok) throw new Error('网络错误');
+      return r.blob();
+    }).then(blob => {
       const a = document.createElement('a');
       const urlObj = URL.createObjectURL(blob);
       a.href = urlObj;
-      a.download = filename || 'qrcode.png';
+      a.download = filename || 'pay_qrcode.png';
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { URL.revokeObjectURL(urlObj); try{ a.remove(); }catch(e){} }, 1000);
     }).catch(err => {
-      alert('下载失败，请长按图片保存或截屏。');
+      alert('二维码下载失败，请长按二维码保存或截屏。');
       console.warn(err);
     });
   }
 
-  // copy to clipboard
+  // Copy to clipboard (with fallback)
   async function copyToClipboard(text){
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
+        return true;
       } else {
-        // fallback
         const ta = document.createElement('textarea');
-        ta.value = text; ta.setAttribute('readonly', '');
-        ta.style.position = 'absolute'; ta.style.left = '-9999px';
-        document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); ta.remove();
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        return true;
       }
-      return true;
     } catch (e) {
       console.warn('copy fail', e);
       return false;
     }
   }
 
+  // Show QR and modal
   showBtn.addEventListener('click', function(){
     const raw = normalizeLink(payLinkInput.value);
-    if (!raw) { alert('请先输入支付链接'); return; }
+    if (!raw) { alert('请输入支付链接'); return; }
 
-    // If it's a weixin deep link, allow; otherwise still show QR (maybe it's url)
-    if (!isWeixinScheme(raw)) {
-      if (!/^https?:\/\//i.test(raw)) {
-        if (!confirm('链接格式看起来不标准，仍要生成二维码吗？')) return;
-      }
+    if (!validateLink(raw)) {
+      if (!confirm('链接格式看起来不标准，仍要生成二维码吗？')) return;
     }
 
-    // Create QR image src
     const src = qrUrlFor(raw, 520);
     qrImg.src = src;
     qrImg.alt = '支付二维码';
-    // set link text (shortened)
-    linkText.textContent = raw.length > 80 ? raw.slice(0,60) + '... (已隐藏部分)' : raw;
-
+    linkText.textContent = raw.length > 100 ? raw.slice(0,80) + '...': raw;
     showModal();
-    // On mobile, focus the image so users can long press easily
+
+    // auto scroll into view on mobile
     setTimeout(()=>{ try{ qrImg.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){} }, 120);
   });
 
-  closeBtn.addEventListener('click', hideModal);
-
-  // click outside modal to close
-  modal.addEventListener('click', function(e){
-    if (e.target === modal) hideModal();
-  });
-
-  copyBtn.addEventListener('click', async function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) return;
-    const ok = await copyToClipboard(raw);
-    if (ok) {
-      copyBtn.textContent = '已复制';
-      setTimeout(()=> copyBtn.textContent = '复制支付链接', 1200);
-    } else {
-      alert('复制失败，请长按链接手动复制');
-    }
-  });
-
-  downloadBtn.addEventListener('click', function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) return;
-    const src = qrUrlFor(raw, 800);
-    downloadImageFromUrl(src, 'pay_qrcode.png');
-  });
-
-  // try to directly open link in browser (may be blocked in some contexts)
+  // Try to open raw link (may be blocked in some contexts)
   openRawBtn.addEventListener('click', function(){
     const raw = normalizeLink(payLinkInput.value);
-    if (!raw) { alert('请先输入支付链接'); return; }
-
-    // If it's weixin scheme, attempt to open - this may fail in many environments (esp. in WeChat)
+    if (!raw) { alert('请输入支付链接'); return; }
+    // If it's a weixin scheme, try to open via anchor click; may not work inside WeChat
     try {
-      // create an anchor and click
       const a = document.createElement('a');
       a.href = raw;
       a.style.display = 'none';
@@ -201,9 +180,46 @@
       a.click();
       setTimeout(()=>{ try{ a.remove(); }catch(e){} }, 1000);
     } catch (e) {
-      // fallback to location change
-      try { window.location.href = raw; } catch (err) { alert('无法打开，请手动长按二维码或复制链接'); }
+      try { window.location.href = raw; } catch (err) { alert('打开失败，请使用长按二维码或复制链接在微信中打开'); }
     }
+  });
+
+  // Clear input
+  clearBtn.addEventListener('click', function(){
+    payLinkInput.value = '';
+  });
+
+  // Close modal
+  closeBtn.addEventListener('click', hideModal);
+  modal.addEventListener('click', function(e){
+    if (e.target === modal) hideModal();
+  });
+
+  // Copy link
+  copyBtn.addEventListener('click', async function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) return;
+    const ok = await copyToClipboard(raw);
+    if (ok) {
+      copyBtn.textContent = '已复制';
+      setTimeout(()=> copyBtn.textContent = '复制支付链接', 1500);
+    } else {
+      alert('复制失败，请长按链接手动复制');
+    }
+  });
+
+  // Download QR
+  downloadBtn.addEventListener('click', function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) return;
+    const src = qrUrlFor(raw, 800);
+    downloadImageFromUrl(src, 'pay_qrcode.png');
+  });
+
+  // Prevent image broken: if qrserver fails, show friendly message
+  qrImg.addEventListener('error', function(){
+    qrImg.style.display = 'none';
+    linkText.textContent = '二维码加载失败，请复制链接并在微信中识别或截图保存后在微信中识别。';
   });
 
 })();
