@@ -1,225 +1,180 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
-  <foreignObject width="100%" height="100%">
-    <html xmlns="http://www.w3.org/1999/xhtml">
-      <head> 
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-        <title>好料来了</title>
-        <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <script>
-          if (typeof wx !== 'undefined') {
-            window.wxjs = wx; // 将 wx 绑定到全局对象
-          } else {
-            console.error('微信 JS-SDK 加载失败，wx 未定义');
-          }
-        </script>
-        <style>
-          *{margin:0;padding:0;}
-          html,body{width:100%;height:100%;}
-          #dynamicIframe{display:block;width:100%;height:100%;border:0;}
-        </style>
-      </head>
-      <body translate="no">
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>唤醒微信支付测试</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;padding:20px;}
+  #status{margin-top:12px;color:#666;}
+  #qr { margin-top:12px; }
+  button{padding:10px 14px;border-radius:6px;border:none;background:#09bb07;color:#fff;font-size:16px;cursor:pointer;}
+</style>
+<script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+</head>
+<body>
+<h3>发起微信支付（尝试）</h3>
+<p>环境检测后优先使用 微信 JSAPI；若不可用则尝试直接唤醒 deep link。</p>
 
-        <script>
-          // 全局错误处理，防止在内嵌环境中出现未捕获异常
-          window.addEventListener('error', function(e) {
-            console.warn('页面异常:', e.error || e.message);
-            // 不阻止错误传播，只记录
-            return false;
-          });
-          
-          window.addEventListener('unhandledrejection', function(e) {
-            console.warn('Promise异常:', e.reason);
-            // 防止未处理的Promise rejection导致页面崩溃
-            e.preventDefault();
-          });
+<!-- 替换为后端返回的 weixin:// 链接（注意转义已清理） -->
+<input id="payUrl" style="width:100%" value="weixin://wxpay/bizpayurl?pr=dcCnZhBz3" />
 
-                    const FIXED_IFRAME_URL = "https://h5.mrhl.org/";     //这里设置成客户端的地址
-          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai666/";      //这里设置成内嵌界面的地址
+<div style="margin-top:12px;">
+  <button id="payBtn">立即支付 / 唤醒微信</button>
+</div>
 
-          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
-          if (isWeChatBrowser && window.wxjs) {
-            // 增强错误处理，避免在内嵌环境中出现502错误
-            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
-            })
-            .then(r => {
-              if (!r.ok) {
-                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-              }
-              return r.json();
-            })
-            .then(res => {
-              if (res && res.data) {
-                try {
-                  window.wxjs.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  window.wxjs.ready(() => {
-                    window.wxjs.hideOptionMenu();
-                    window.wxjs.hideMenuItems({
-                      menuList: [
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                  window.wxjs.error(err => {
-                    console.warn('微信JS-SDK配置失败:', err);
-                  });
-                } catch (e) {
-                  console.warn('微信JS-SDK初始化异常:', e);
-                }
-              }
-            })
-            .catch(err => {
-              console.warn('获取微信JS-SDK配置失败:', err);
-              // 在内嵌环境中，即使微信配置失败也不影响基本功能
-            });
-          }
+<div id="status"></div>
+<div id="qr"></div>
 
-          function checkWechatCallback() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-            const state = urlParams.get('state');
-            
-            if (code && state) {
-              try {
-                const stateData = JSON.parse(state);
-                if (stateData.source === 'wechat_login') {
-                  return { code, state, isWechatCallback: true };
-                }
-              } catch (e) {}
-            }
-            return { isWechatCallback: false };
-          }
+<script>
+(function(){
+  const payBtn = document.getElementById('payBtn');
+  const status = document.getElementById('status');
+  const qrBox = document.getElementById('qr');
 
-          (function loadIframe(){
-            const iframe = document.getElementById("dynamicIframe");
-            const callbackInfo = checkWechatCallback();
-            
-            let iframeUrl = FIXED_IFRAME_URL;
-            
-            if (callbackInfo.isWechatCallback) {
-              const separator = iframeUrl.includes('?') ? '&' : '?';
-              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
-            } else {
-              const currentParams = new URLSearchParams(window.location.search);
-              const params = [];
-              
-              for (const [key, value] of currentParams) {
-                params.push(`${key}=${encodeURIComponent(value)}`);
-              }
-              
-              if (params.length > 0) {
-                const separator = iframeUrl.includes('?') ? '&' : '?';
-                iframeUrl += `${separator}${params.join('&')}`;
-              }
-            }
-            
-            iframe.src = iframeUrl;
-            
-            iframe.onload = function() {
-              setTimeout(() => {
-                try {
-                  // 增强内嵌环境下的通信稳定性
-                  if (iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                      action: 'set_iframe_parent_url',
-                      iframe_parent_url: window.location.href,
-                      parent_origin: window.location.origin,
-                      is_embedded: window.self !== window.top,
-                      environment: 'svg_iframe'
-                    }, '*');
-                  }
-                } catch (e) {
-                  console.warn('iframe通信异常:', e);
-                  // 跨域限制，这是正常现象
-                }
-              }, 1000);
-            };
-          })();
+  function setStatus(t){ status.textContent = t; }
 
-          window.addEventListener("message", function(event) {
-            // 增强消息处理的稳定性和安全性
-            try {
-              if (!event.data || typeof event.data !== 'object') {
-                return;
-              }
+  // 简单 UA 检测
+  const ua = navigator.userAgent || '';
+  const isWeChat = /MicroMessenger/i.test(ua);
+  const isMobile = /Android|iPhone|iPad|iPod|Adr/i.test(ua);
 
-              const { action, url } = event.data;
-              
-              if (action === "redirect" && typeof url === "string" && url) {
-                window.location.href = url;
-              }
-              
-              if (action === "wechat_authorize" && typeof url === "string" && url) {
-                window.location.href = url;
-              }
-              
-              if (action === "iframe_navigate" && typeof url === "string" && url) {
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe) {
-                  iframe.src = url;
-                }
-              }
-              
-              // 处理获取客户端域名的请求
-              if (action === "get_client_domain") {
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe && iframe.contentWindow) {
-                  try {
-                    iframe.contentWindow.postMessage({
-                      action: 'client_domain_response',
-                      clientDomain: FIXED_IFRAME_URL,
-                      iframeDomain: FIXED_SIGN_URL
-                    }, '*');
-                  } catch (e) {
-                    console.warn('响应域名查询失败:', e);
-                  }
-                }
-              }
-              
-              // 处理支付页面跳转请求 - 针对内嵌环境优化
-              if (action === "payment_redirect" && typeof url === "string" && url) {
-                // 在iframe环境中，优先让父窗口跳转
-                if (window.self !== window.top) {
-                  try {
-                    window.parent.postMessage({
-                      action: 'redirect',
-                      url: url
-                    }, '*');
-                    
-                    // 设置超时，如果父窗口没有响应，则自己跳转
-                    setTimeout(() => {
-                      window.location.href = url;
-                    }, 1000);
-                  } catch (e) {
-                    console.warn('通知父窗口跳转失败，直接跳转:', e);
-                    window.location.href = url;
-                  }
-                } else {
-                  window.location.href = url;
-                }
-              }
-            } catch (e) {
-              console.warn('消息处理异常:', e);
+  // 当在微信内时，推荐使用 wx.chooseWXPay —— 需要后端提供 payConfig（下面为示例占位）
+  // payConfig = {timestamp, nonceStr, package, signType, paySign}
+  // 你的后端应该返回这些字段并注入到页面或通过 Ajax 获取
+  const payConfig = window.__WX_PAY_CONFIG__ || null; // 如果你后端注入，这里会有值
+
+  function tryWxJsApi(payCfg){
+    if (!window.wx) {
+      setStatus('未检测到 wx 对象（微信 JS-SDK 未加载）');
+      return Promise.reject(new Error('wx not loaded'));
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        // 需要在服务器端已对当前 url 签名并返回 wx.config 所需参数（appId,timestamp,nonceStr,signature）
+        // 这里假设已经在其他地方完成 wx.config 的 init
+        wx.ready(() => {
+          setStatus('调用 wx.chooseWXPay ...');
+          wx.chooseWXPay({
+            timestamp: payCfg.timestamp,
+            nonceStr: payCfg.nonceStr,
+            package: payCfg.package,
+            signType: payCfg.signType || 'MD5',
+            paySign: payCfg.paySign,
+            success: function (res) {
+              setStatus('支付已提交，返回: ' + JSON.stringify(res));
+              resolve(res);
+            },
+            cancel: function(res){
+              setStatus('用户取消支付');
+              reject(new Error('cancel'));
+            },
+            fail: function(err){
+              setStatus('JSAPI 调用失败: ' + JSON.stringify(err));
+              reject(err);
             }
           });
-        </script>
-      </body>
-    </html>
-  </foreignObject>
-</svg>
+        });
+        wx.error(function(err){
+          setStatus('wx.config 配置/签名有误: ' + JSON.stringify(err));
+          reject(err);
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  // 回退：在非微信或没 JSAPI 参数时尝试用 scheme 唤醒
+  function tryDeepLink(deepLink, timeout = 1200) {
+    return new Promise((resolve, reject) => {
+      if (!deepLink || typeof deepLink !== 'string') return reject(new Error('invalid url'));
+
+      // 只允许 weixin:// 前缀（安全校验）
+      if (!/^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(deepLink)) {
+        return reject(new Error('不受支持的 deep link'));
+      }
+
+      // 如果在桌面或非移动设备，直接提示扫码（不要唤醒）
+      if (!isMobile) {
+        return reject(new Error('桌面端请使用二维码扫码支付'));
+      }
+
+      let opened = false;
+      const onVisibility = function(){
+        opened = true;
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+
+      // create and click anchor
+      const a = document.createElement('a');
+      a.href = deepLink;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+
+      // try click
+      try {
+        a.click();
+      } catch (e) {
+        // fallback to location
+        try { window.location.href = deepLink; } catch(err) {}
+      }
+
+      // after timeout check
+      setTimeout(() => {
+        document.removeEventListener('visibilitychange', onVisibility);
+        try { a.remove(); } catch(e){}
+        if (opened) {
+          setStatus('已切出至微信（可能已唤醒）');
+          resolve();
+        } else {
+          setStatus('唤醒未成功，显示二维码或提示用户在微信中打开页面');
+          reject(new Error('not opened'));
+        }
+      }, timeout);
+    });
+  }
+
+  // 生成简单二维码（如果你有 qrcode 库可以替换）
+  function showSimpleQr(text){
+    // 使用 Google Chart 生成临时二维码（注意隐私/稳定性）
+    const url = 'https://chart.googleapis.com/chart?cht=qr&chs=200x200&chld=L|1&chl=' + encodeURIComponent(text);
+    qrBox.innerHTML = '<p>请使用微信扫一扫：</p><img src="' + url + '" alt="QR" />';
+  }
+
+  payBtn.addEventListener('click', async function(){
+    setStatus('开始支付流程...');
+    qrBox.innerHTML = '';
+
+    const raw = (document.getElementById('payUrl').value || '').replace(/\\/g, '');
+    // 如果在微信内且有 JSAPI 参数，优先走 JSAPI
+    if (isWeChat && payConfig && typeof payConfig === 'object') {
+      setStatus('微信内环境且检测到 JSAPI 支付参数，准备调用 wx.chooseWXPay ...');
+      try {
+        await tryWxJsApi(payConfig);
+        // 成功后流程已在 tryWxJsApi 内处理
+      } catch (e) {
+        console.warn('wx jsapi fail, fallback to deep link', e);
+        // 若 JSAPI 失败，继续尝试 deep link（不一定成功）
+        try {
+          await tryDeepLink(raw, 1200);
+        } catch (_){
+          showSimpleQr(raw);
+        }
+      }
+      return;
+    }
+
+    // 否则直接尝试 deep link（移动设备）
+    try {
+      await tryDeepLink(raw, 1500);
+    } catch (e) {
+      // deep link 无法唤醒 -> 显示二维码作为回退
+      showSimpleQr(raw);
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
