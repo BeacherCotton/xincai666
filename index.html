@@ -1,177 +1,189 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>唤醒微信支付测试</title>
-<style>
-  body{font-family:Arial,Helvetica,sans-serif;padding:20px;}
-  #status{margin-top:12px;color:#666;}
-  #qr { margin-top:12px; }
-  button{padding:10px 14px;border-radius:6px;border:none;background:#09bb07;color:#fff;font-size:16px;cursor:pointer;}
-</style>
-<script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>尝试唤醒微信支付</title>
+  <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#fff;color:#222;}
+    h1{font-size:18px;margin-bottom:8px;}
+    p{margin:6px 0;color:#555;}
+    input{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;}
+    button{margin-top:12px;padding:10px 14px;border-radius:6px;border:none;background:#09bb07;color:#fff;font-size:16px;cursor:pointer;}
+    #status{margin-top:10px;color:#666;font-size:14px;}
+    #qr{margin-top:14px;}
+    img.qr{width:200px;height:200px;border-radius:6px;border:1px solid #eee;}
+  </style>
 </head>
 <body>
-<h3>发起微信支付（尝试）</h3>
-<p>环境检测后优先使用 微信 JSAPI；若不可用则尝试直接唤醒 deep link。</p>
+  <h1>唤醒微信支付（尝试）</h1>
+  <p>说明：若在微信内请优先使用后端生成的 JSAPI 参数；否则尝试 deep link 唤醒，失败则展示二维码。</p>
 
-<!-- 替换为后端返回的 weixin:// 链接（注意转义已清理） -->
-<input id="payUrl" style="width:100%" value="weixin://wxpay/bizpayurl?pr=dcCnZhBz3" />
+  <!-- 1) 在这里放入 payUrl（服务器返回的 weixin:// 链接），务必去掉反斜线 -->
+  <label>weixin deep link：</label>
+  <input id="payUrl" value="weixin://wxpay/bizpayurl?pr=dcCnZhBz3" />
 
-<div style="margin-top:12px;">
-  <button id="payBtn">立即支付 / 唤醒微信</button>
-</div>
+  <label style="display:block;margin-top:8px;">（可选）如你后端注入 wx.chooseWXPay 所需参数，请把对象赋给全局变量 WX_PAY_CONFIG</label>
+  <pre id="debug" style="display:none;"></pre>
 
-<div id="status"></div>
-<div id="qr"></div>
+  <button id="payBtn">立即唤醒 / 发起支付</button>
+  <div id="status"></div>
+  <div id="qr"></div>
 
 <script>
+/*
+  使用说明：
+  - 若后端可提供 JSAPI 支付参数（wxconfig 与 chooseWXPay 所需），请在页面中注入：
+      window.WX_PAY_CONFIG = {
+        wxConfig: { appId, timestamp, nonceStr, signature },   // 用于 wx.config
+        payParams: { timestamp, nonceStr, package, signType, paySign } // 用于 wx.chooseWXPay
+      };
+    并确保 wx.config 已按微信文档初始化（或使用下面的 initWxSdkFromConfig 函数）。
+  - 若无法提供，则脚本会尝试直接唤醒 weixin:// deep link（在微信内往往不稳定）。
+  - deep link 格式必须为 weixin://wxpay/bizpayurl?pr=YOUR_PR
+*/
+
 (function(){
   const payBtn = document.getElementById('payBtn');
-  const status = document.getElementById('status');
-  const qrBox = document.getElementById('qr');
+  const statusEl = document.getElementById('status');
+  const qrEl = document.getElementById('qr');
+  const payUrlInput = document.getElementById('payUrl');
 
-  function setStatus(t){ status.textContent = t; }
+  function setStatus(msg){ statusEl.textContent = msg; }
 
-  // 简单 UA 检测
   const ua = navigator.userAgent || '';
   const isWeChat = /MicroMessenger/i.test(ua);
   const isMobile = /Android|iPhone|iPad|iPod|Adr/i.test(ua);
 
-  // 当在微信内时，推荐使用 wx.chooseWXPay —— 需要后端提供 payConfig（下面为示例占位）
-  // payConfig = {timestamp, nonceStr, package, signType, paySign}
-  // 你的后端应该返回这些字段并注入到页面或通过 Ajax 获取
-  const payConfig = window.__WX_PAY_CONFIG__ || null; // 如果你后端注入，这里会有值
-
-  function tryWxJsApi(payCfg){
-    if (!window.wx) {
-      setStatus('未检测到 wx 对象（微信 JS-SDK 未加载）');
-      return Promise.reject(new Error('wx not loaded'));
-    }
+  // optional global config injected by backend:
+  // window.WX_PAY_CONFIG = { wxConfig: {...}, payParams: {...} }
+  async function initWxSdkFromConfig(wxConf) {
+    if (!window.wx || !wxConf || !wxConf.wxConfig) return Promise.reject('no-wx-or-config');
     return new Promise((resolve, reject) => {
       try {
-        // 需要在服务器端已对当前 url 签名并返回 wx.config 所需参数（appId,timestamp,nonceStr,signature）
-        // 这里假设已经在其他地方完成 wx.config 的 init
-        wx.ready(() => {
-          setStatus('调用 wx.chooseWXPay ...');
-          wx.chooseWXPay({
-            timestamp: payCfg.timestamp,
-            nonceStr: payCfg.nonceStr,
-            package: payCfg.package,
-            signType: payCfg.signType || 'MD5',
-            paySign: payCfg.paySign,
-            success: function (res) {
-              setStatus('支付已提交，返回: ' + JSON.stringify(res));
-              resolve(res);
-            },
-            cancel: function(res){
-              setStatus('用户取消支付');
-              reject(new Error('cancel'));
-            },
-            fail: function(err){
-              setStatus('JSAPI 调用失败: ' + JSON.stringify(err));
-              reject(err);
-            }
-          });
+        wx.config({
+          debug: false,
+          appId: wxConf.wxConfig.appId,
+          timestamp: wxConf.wxConfig.timestamp,
+          nonceStr: wxConf.wxConfig.nonceStr,
+          signature: wxConf.wxConfig.signature,
+          jsApiList: ['chooseWXPay']
         });
-        wx.error(function(err){
-          setStatus('wx.config 配置/签名有误: ' + JSON.stringify(err));
-          reject(err);
-        });
-      } catch (e) {
-        reject(e);
-      }
+        wx.ready(() => resolve(true));
+        wx.error(err => reject(err));
+      } catch (e) { reject(e); }
     });
   }
 
-  // 回退：在非微信或没 JSAPI 参数时尝试用 scheme 唤醒
+  function tryWxChoosePay(payParams) {
+    if (!window.wx || !payParams) return Promise.reject('no-wx-or-payParams');
+    return new Promise((resolve, reject) => {
+      try {
+        wx.chooseWXPay({
+          timestamp: payParams.timestamp,
+          nonceStr: payParams.nonceStr,
+          package: payParams.package,
+          signType: payParams.signType || 'MD5',
+          paySign: payParams.paySign,
+          success(res){ resolve(res); },
+          cancel(res){ reject({type:'cancel', info:res}); },
+          fail(err){ reject({type:'fail', info:err}); }
+        });
+      } catch (e) { reject(e); }
+    });
+  }
+
+  // deep link 唤醒（在移动端由用户点击触发）
   function tryDeepLink(deepLink, timeout = 1200) {
     return new Promise((resolve, reject) => {
-      if (!deepLink || typeof deepLink !== 'string') return reject(new Error('invalid url'));
+      if (!deepLink || typeof deepLink !== 'string') return reject('invalid-link');
 
-      // 只允许 weixin:// 前缀（安全校验）
+      // basic sanitize: remove backslashes and whitespace
+      deepLink = deepLink.replace(/\\/g,'').trim();
+
+      // only allow expected prefix
       if (!/^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(deepLink)) {
-        return reject(new Error('不受支持的 deep link'));
+        return reject('link-format-invalid');
       }
 
-      // 如果在桌面或非移动设备，直接提示扫码（不要唤醒）
-      if (!isMobile) {
-        return reject(new Error('桌面端请使用二维码扫码支付'));
-      }
+      if (!isMobile) return reject('not-mobile');
 
       let opened = false;
-      const onVisibility = function(){
-        opened = true;
-      };
-      document.addEventListener('visibilitychange', onVisibility);
+      const onVis = () => { opened = true; };
+      document.addEventListener('visibilitychange', onVis);
 
-      // create and click anchor
+      // create anchor and click
       const a = document.createElement('a');
       a.href = deepLink;
       a.style.display = 'none';
       document.body.appendChild(a);
 
-      // try click
       try {
         a.click();
       } catch (e) {
-        // fallback to location
-        try { window.location.href = deepLink; } catch(err) {}
+        try { window.location.href = deepLink; } catch(e2) {}
       }
 
-      // after timeout check
+      // after timeout determine result
       setTimeout(() => {
-        document.removeEventListener('visibilitychange', onVisibility);
+        document.removeEventListener('visibilitychange', onVis);
         try { a.remove(); } catch(e){}
-        if (opened) {
-          setStatus('已切出至微信（可能已唤醒）');
-          resolve();
-        } else {
-          setStatus('唤醒未成功，显示二维码或提示用户在微信中打开页面');
-          reject(new Error('not opened'));
-        }
+        if (opened) resolve(true);
+        else reject('not-opened');
       }, timeout);
     });
   }
 
-  // 生成简单二维码（如果你有 qrcode 库可以替换）
-  function showSimpleQr(text){
-    // 使用 Google Chart 生成临时二维码（注意隐私/稳定性）
-    const url = 'https://chart.googleapis.com/chart?cht=qr&chs=200x200&chld=L|1&chl=' + encodeURIComponent(text);
-    qrBox.innerHTML = '<p>请使用微信扫一扫：</p><img src="' + url + '" alt="QR" />';
+  // show a quick QR (Google Chart)
+  function showQr(text) {
+    const url = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chld=L|1&chl=' + encodeURIComponent(text);
+    qrEl.innerHTML = '<div><p>若唤醒失败，请用微信扫一扫：</p><img class="qr" src="' + url + '" alt="qr"></div>';
   }
 
+  // main flow when clicking button
   payBtn.addEventListener('click', async function(){
     setStatus('开始支付流程...');
-    qrBox.innerHTML = '';
+    qrEl.innerHTML = '';
 
-    const raw = (document.getElementById('payUrl').value || '').replace(/\\/g, '');
-    // 如果在微信内且有 JSAPI 参数，优先走 JSAPI
-    if (isWeChat && payConfig && typeof payConfig === 'object') {
-      setStatus('微信内环境且检测到 JSAPI 支付参数，准备调用 wx.chooseWXPay ...');
+    const raw = (payUrlInput.value || '').replace(/\\+/g, '').trim();
+
+    // 1) If in WeChat and backend provided WX_PAY_CONFIG, try JSAPI
+    if (isWeChat && window.WX_PAY_CONFIG && window.WX_PAY_CONFIG.payParams) {
+      setStatus('检测到微信环境与 JSAPI 参数，尝试调用 wx.chooseWXPay ...');
       try {
-        await tryWxJsApi(payConfig);
-        // 成功后流程已在 tryWxJsApi 内处理
-      } catch (e) {
-        console.warn('wx jsapi fail, fallback to deep link', e);
-        // 若 JSAPI 失败，继续尝试 deep link（不一定成功）
-        try {
-          await tryDeepLink(raw, 1200);
-        } catch (_){
-          showSimpleQr(raw);
+        // If wx.config not yet init, attempt init with provided wxConfig
+        if (window.WX_PAY_CONFIG.wxConfig) {
+          await initWxSdkFromConfig(window.WX_PAY_CONFIG);
         }
+        await tryWxChoosePay(window.WX_PAY_CONFIG.payParams);
+        setStatus('JSAPI：支付调用已发起，请在微信中完成支付。');
+        return;
+      } catch (e) {
+        console.warn('wx jsapi fail', e);
+        setStatus('JSAPI 调用失败，尝试回退唤醒或二维码。');
+        // fallthrough to deep link / qr
       }
-      return;
     }
 
-    // 否则直接尝试 deep link（移动设备）
-    try {
-      await tryDeepLink(raw, 1500);
-    } catch (e) {
-      // deep link 无法唤醒 -> 显示二维码作为回退
-      showSimpleQr(raw);
+    // 2) Try deep link (mobile)
+    if (isMobile) {
+      setStatus('尝试通过 deep link 唤醒微信...');
+      try {
+        await tryDeepLink(raw, 1500);
+        setStatus('若已切换到微信，请完成支付；若未切换请扫码或在微信中打开此页。');
+        return;
+      } catch (e) {
+        console.warn('deep link fail', e);
+        setStatus('唤醒未成功，显示二维码作为回退。');
+        showQr(raw);
+        return;
+      }
     }
+
+    // 3) Desktop or others: show QR fallback
+    setStatus('当前为桌面或非移动环境，请用手机微信扫码支付。');
+    showQr(raw);
   });
 
 })();
