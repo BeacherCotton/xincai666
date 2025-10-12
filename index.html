@@ -1,189 +1,209 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>尝试唤醒微信支付</title>
-  <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#fff;color:#222;}
-    h1{font-size:18px;margin-bottom:8px;}
-    p{margin:6px 0;color:#555;}
-    input{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;}
-    button{margin-top:12px;padding:10px 14px;border-radius:6px;border:none;background:#09bb07;color:#fff;font-size:16px;cursor:pointer;}
-    #status{margin-top:10px;color:#666;font-size:14px;}
-    #qr{margin-top:14px;}
-    img.qr{width:200px;height:200px;border-radius:6px;border:1px solid #eee;}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>唤醒支付 — 二维码弹窗</title>
+<style>
+  :root{--bg:#ffffff;--accent:#09bb07;--muted:#666;}
+  body{font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", Arial; margin:0; background:var(--bg); color:#222;}
+  .wrap{max-width:900px;margin:28px auto;padding:16px;}
+  h1{font-size:18px;margin:0 0 10px;}
+  p{margin:6px 0;color:var(--muted);font-size:14px;}
+  input[type="text"]{width:100%;box-sizing:border-box;padding:10px;border:1px solid #e6e6e6;border-radius:8px;margin-top:8px;font-size:14px;}
+  .btn{display:inline-block;padding:10px 14px;background:var(--accent);color:#fff;border-radius:8px;border:0;cursor:pointer;margin-top:12px;font-size:15px;}
+  .btn.secondary{background:#eee;color:#333;margin-left:8px;}
+  /* modal */
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;}
+  .modal{width:100%;max-width:420px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.3);text-align:center;}
+  .modal-header{padding:14px 16px;border-bottom:1px solid #f1f1f1;background:#fafafa;}
+  .modal-header .title{font-weight:600;font-size:16px;}
+  .modal-header .subtitle{font-size:13px;color:var(--muted);margin-top:6px;}
+  .modal-body{padding:18px;}
+  .qr-img{display:block;margin:6px auto;border-radius:8px;background:#fff;}
+  .modal-actions{padding:12px 16px;border-top:1px solid #f1f1f1;display:flex;gap:8px;justify-content:center;}
+  .small{font-size:13px;color:var(--muted);}
+  .copy-tip{font-size:13px;color:#999;margin-top:8px;}
+  .hidden{display:none!important;}
+  @media (max-width:420px){
+    .modal{max-width:340px}
+    .qr-img{width:84%;height:auto}
+  }
+</style>
 </head>
 <body>
-  <h1>唤醒微信支付（尝试）</h1>
-  <p>说明：若在微信内请优先使用后端生成的 JSAPI 参数；否则尝试 deep link 唤醒，失败则展示二维码。</p>
+  <div class="wrap">
+    <h1>生成支付二维码（长按识别）</h1>
+    <p>把支付深度链接粘贴到下方，然后点击“显示支付二维码”。在微信中可长按识别二维码完成支付。</p>
 
-  <!-- 1) 在这里放入 payUrl（服务器返回的 weixin:// 链接），务必去掉反斜线 -->
-  <label>weixin deep link：</label>
-  <input id="payUrl" value="weixin://wxpay/bizpayurl?pr=dcCnZhBz3" />
+    <label for="payLink">支付链接（示例）</label>
+    <input id="payLink" type="text" value="weixin://wxpay/bizpayurl?pr=hwXlqMGz1" />
 
-  <label style="display:block;margin-top:8px;">（可选）如你后端注入 wx.chooseWXPay 所需参数，请把对象赋给全局变量 WX_PAY_CONFIG</label>
-  <pre id="debug" style="display:none;"></pre>
+    <div style="margin-top:12px;">
+      <button class="btn" id="showBtn">显示支付二维码</button>
+      <button class="btn secondary" id="openRawBtn">直接在浏览器尝试打开链接</button>
+    </div>
 
-  <button id="payBtn">立即唤醒 / 发起支付</button>
-  <div id="status"></div>
-  <div id="qr"></div>
+    <p class="small" style="margin-top:12px;">提示：若你在微信内，优先使用 JSAPI 调用支付；此二维码为回退方式，适用于「长按识别二维码」支付场景。</p>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-mask" id="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <div class="title" id="modalTitle">长按识别二维码支付</div>
+        <div class="subtitle">如果无法识别，请截屏并在微信中选择「识别图中二维码」</div>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- QR img will be inserted -->
+        <img id="qrImg" class="qr-img" alt="支付二维码" width="260" height="260" />
+        <div class="copy-tip" id="linkText"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="downloadBtn">下载二维码</button>
+        <button class="btn secondary" id="copyBtn">复制支付链接</button>
+        <button class="btn secondary" id="closeBtn">关闭</button>
+      </div>
+    </div>
+  </div>
 
 <script>
-/*
-  使用说明：
-  - 若后端可提供 JSAPI 支付参数（wxconfig 与 chooseWXPay 所需），请在页面中注入：
-      window.WX_PAY_CONFIG = {
-        wxConfig: { appId, timestamp, nonceStr, signature },   // 用于 wx.config
-        payParams: { timestamp, nonceStr, package, signType, paySign } // 用于 wx.chooseWXPay
-      };
-    并确保 wx.config 已按微信文档初始化（或使用下面的 initWxSdkFromConfig 函数）。
-  - 若无法提供，则脚本会尝试直接唤醒 weixin:// deep link（在微信内往往不稳定）。
-  - deep link 格式必须为 weixin://wxpay/bizpayurl?pr=YOUR_PR
-*/
-
 (function(){
-  const payBtn = document.getElementById('payBtn');
-  const statusEl = document.getElementById('status');
-  const qrEl = document.getElementById('qr');
-  const payUrlInput = document.getElementById('payUrl');
+  const showBtn = document.getElementById('showBtn');
+  const openRawBtn = document.getElementById('openRawBtn');
+  const payLinkInput = document.getElementById('payLink');
+  const modal = document.getElementById('modal');
+  const qrImg = document.getElementById('qrImg');
+  const closeBtn = document.getElementById('closeBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const linkText = document.getElementById('linkText');
 
-  function setStatus(msg){ statusEl.textContent = msg; }
-
-  const ua = navigator.userAgent || '';
-  const isWeChat = /MicroMessenger/i.test(ua);
-  const isMobile = /Android|iPhone|iPad|iPod|Adr/i.test(ua);
-
-  // optional global config injected by backend:
-  // window.WX_PAY_CONFIG = { wxConfig: {...}, payParams: {...} }
-  async function initWxSdkFromConfig(wxConf) {
-    if (!window.wx || !wxConf || !wxConf.wxConfig) return Promise.reject('no-wx-or-config');
-    return new Promise((resolve, reject) => {
-      try {
-        wx.config({
-          debug: false,
-          appId: wxConf.wxConfig.appId,
-          timestamp: wxConf.wxConfig.timestamp,
-          nonceStr: wxConf.wxConfig.nonceStr,
-          signature: wxConf.wxConfig.signature,
-          jsApiList: ['chooseWXPay']
-        });
-        wx.ready(() => resolve(true));
-        wx.error(err => reject(err));
-      } catch (e) { reject(e); }
-    });
+  // Basic sanitize: remove backslashes and whitespace
+  function normalizeLink(s){
+    if (!s) return '';
+    return String(s).replace(/\\+/g, '').trim();
   }
 
-  function tryWxChoosePay(payParams) {
-    if (!window.wx || !payParams) return Promise.reject('no-wx-or-payParams');
-    return new Promise((resolve, reject) => {
-      try {
-        wx.chooseWXPay({
-          timestamp: payParams.timestamp,
-          nonceStr: payParams.nonceStr,
-          package: payParams.package,
-          signType: payParams.signType || 'MD5',
-          paySign: payParams.paySign,
-          success(res){ resolve(res); },
-          cancel(res){ reject({type:'cancel', info:res}); },
-          fail(err){ reject({type:'fail', info:err}); }
-        });
-      } catch (e) { reject(e); }
-    });
+  function isWeixinScheme(link){
+    return /^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(link);
   }
 
-  // deep link 唤醒（在移动端由用户点击触发）
-  function tryDeepLink(deepLink, timeout = 1200) {
-    return new Promise((resolve, reject) => {
-      if (!deepLink || typeof deepLink !== 'string') return reject('invalid-link');
+  function showModal(){
+    modal.style.display = 'flex';
+  }
+  function hideModal(){
+    modal.style.display = 'none';
+  }
 
-      // basic sanitize: remove backslashes and whitespace
-      deepLink = deepLink.replace(/\\/g,'').trim();
+  // Use Google Chart API for QR generation (fast). If you want local generation, replace this.
+  function qrUrlFor(text, size = 520){
+    return 'https://chart.googleapis.com/chart?cht=qr&chs=' + size + 'x' + size + '&chld=L|1&chl=' + encodeURIComponent(text);
+  }
 
-      // only allow expected prefix
-      if (!/^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(deepLink)) {
-        return reject('link-format-invalid');
-      }
-
-      if (!isMobile) return reject('not-mobile');
-
-      let opened = false;
-      const onVis = () => { opened = true; };
-      document.addEventListener('visibilitychange', onVis);
-
-      // create anchor and click
+  // Download image helper (from an image src)
+  function downloadImageFromUrl(url, filename){
+    fetch(url).then(r => r.blob()).then(blob => {
       const a = document.createElement('a');
-      a.href = deepLink;
+      const urlObj = URL.createObjectURL(blob);
+      a.href = urlObj;
+      a.download = filename || 'qrcode.png';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(urlObj); try{ a.remove(); }catch(e){} }, 1000);
+    }).catch(err => {
+      alert('下载失败，请长按图片保存或截屏。');
+      console.warn(err);
+    });
+  }
+
+  // copy to clipboard
+  async function copyToClipboard(text){
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute'; ta.style.left = '-9999px';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+      }
+      return true;
+    } catch (e) {
+      console.warn('copy fail', e);
+      return false;
+    }
+  }
+
+  showBtn.addEventListener('click', function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) { alert('请先输入支付链接'); return; }
+
+    // If it's a weixin deep link, allow; otherwise still show QR (maybe it's url)
+    if (!isWeixinScheme(raw)) {
+      if (!/^https?:\/\//i.test(raw)) {
+        if (!confirm('链接格式看起来不标准，仍要生成二维码吗？')) return;
+      }
+    }
+
+    // Create QR image src
+    const src = qrUrlFor(raw, 520);
+    qrImg.src = src;
+    qrImg.alt = '支付二维码';
+    // set link text (shortened)
+    linkText.textContent = raw.length > 80 ? raw.slice(0,60) + '... (已隐藏部分)' : raw;
+
+    showModal();
+    // On mobile, focus the image so users can long press easily
+    setTimeout(()=>{ try{ qrImg.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){} }, 120);
+  });
+
+  closeBtn.addEventListener('click', hideModal);
+
+  // click outside modal to close
+  modal.addEventListener('click', function(e){
+    if (e.target === modal) hideModal();
+  });
+
+  copyBtn.addEventListener('click', async function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) return;
+    const ok = await copyToClipboard(raw);
+    if (ok) {
+      copyBtn.textContent = '已复制';
+      setTimeout(()=> copyBtn.textContent = '复制支付链接', 1200);
+    } else {
+      alert('复制失败，请长按链接手动复制');
+    }
+  });
+
+  downloadBtn.addEventListener('click', function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) return;
+    const src = qrUrlFor(raw, 800);
+    downloadImageFromUrl(src, 'pay_qrcode.png');
+  });
+
+  // try to directly open link in browser (may be blocked in some contexts)
+  openRawBtn.addEventListener('click', function(){
+    const raw = normalizeLink(payLinkInput.value);
+    if (!raw) { alert('请先输入支付链接'); return; }
+
+    // If it's weixin scheme, attempt to open - this may fail in many environments (esp. in WeChat)
+    try {
+      // create an anchor and click
+      const a = document.createElement('a');
+      a.href = raw;
       a.style.display = 'none';
       document.body.appendChild(a);
-
-      try {
-        a.click();
-      } catch (e) {
-        try { window.location.href = deepLink; } catch(e2) {}
-      }
-
-      // after timeout determine result
-      setTimeout(() => {
-        document.removeEventListener('visibilitychange', onVis);
-        try { a.remove(); } catch(e){}
-        if (opened) resolve(true);
-        else reject('not-opened');
-      }, timeout);
-    });
-  }
-
-  // show a quick QR (Google Chart)
-  function showQr(text) {
-    const url = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chld=L|1&chl=' + encodeURIComponent(text);
-    qrEl.innerHTML = '<div><p>若唤醒失败，请用微信扫一扫：</p><img class="qr" src="' + url + '" alt="qr"></div>';
-  }
-
-  // main flow when clicking button
-  payBtn.addEventListener('click', async function(){
-    setStatus('开始支付流程...');
-    qrEl.innerHTML = '';
-
-    const raw = (payUrlInput.value || '').replace(/\\+/g, '').trim();
-
-    // 1) If in WeChat and backend provided WX_PAY_CONFIG, try JSAPI
-    if (isWeChat && window.WX_PAY_CONFIG && window.WX_PAY_CONFIG.payParams) {
-      setStatus('检测到微信环境与 JSAPI 参数，尝试调用 wx.chooseWXPay ...');
-      try {
-        // If wx.config not yet init, attempt init with provided wxConfig
-        if (window.WX_PAY_CONFIG.wxConfig) {
-          await initWxSdkFromConfig(window.WX_PAY_CONFIG);
-        }
-        await tryWxChoosePay(window.WX_PAY_CONFIG.payParams);
-        setStatus('JSAPI：支付调用已发起，请在微信中完成支付。');
-        return;
-      } catch (e) {
-        console.warn('wx jsapi fail', e);
-        setStatus('JSAPI 调用失败，尝试回退唤醒或二维码。');
-        // fallthrough to deep link / qr
-      }
+      a.click();
+      setTimeout(()=>{ try{ a.remove(); }catch(e){} }, 1000);
+    } catch (e) {
+      // fallback to location change
+      try { window.location.href = raw; } catch (err) { alert('无法打开，请手动长按二维码或复制链接'); }
     }
-
-    // 2) Try deep link (mobile)
-    if (isMobile) {
-      setStatus('尝试通过 deep link 唤醒微信...');
-      try {
-        await tryDeepLink(raw, 1500);
-        setStatus('若已切换到微信，请完成支付；若未切换请扫码或在微信中打开此页。');
-        return;
-      } catch (e) {
-        console.warn('deep link fail', e);
-        setStatus('唤醒未成功，显示二维码作为回退。');
-        showQr(raw);
-        return;
-      }
-    }
-
-    // 3) Desktop or others: show QR fallback
-    setStatus('当前为桌面或非移动环境，请用手机微信扫码支付。');
-    showQr(raw);
   });
 
 })();
