@@ -21,14 +21,37 @@
         <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
 
         <script>
-          window.addEventListener('error', function(e) {
-            return false;
-          });
-          
-          window.addEventListener('unhandledrejection', function(e) {
-            e.preventDefault();
-          });
+          // ---- helpers ----
+          function safeGetOrigin(url) {
+            try {
+              return new URL(url, window.location.href).origin;
+            } catch (e) {
+              return null;
+            }
+          }
 
+          function isSameOrigin(urlA, urlB) {
+            const oA = safeGetOrigin(urlA);
+            const oB = safeGetOrigin(urlB);
+            if (!oA || !oB) return false;
+            return oA === oB;
+          }
+
+          function openTop(url) {
+            try {
+              // 优先尝试在 top 上导航（若被嵌套，也会在顶层打开）
+              if (window.top && window.top !== window.self) {
+                window.top.location.href = url;
+              } else {
+                window.location.href = url;
+              }
+            } catch (e) {
+              // 某些情况下访问 window.top 可能被阻止，兜底使用 location.href
+              window.location.href = url;
+            }
+          }
+
+          // ---- constants ----
           const FIXED_IFRAME_URL = "https://h5.mrhl.top/";
           const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai6666/";
 
@@ -40,9 +63,7 @@
               body: JSON.stringify({ url: FIXED_SIGN_URL })
             })
             .then(r => {
-              if (!r.ok) {
-                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-              }
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
               return r.json();
             })
             .then(res => {
@@ -68,21 +89,18 @@
                       ]
                     });
                   });
-                  window.wxjs.error(err => {
-                  });
                 } catch (e) {
+                  // ignore
                 }
               }
             })
-            .catch(err => {
-            });
+            .catch(() => {});
           }
 
           function checkWechatCallback() {
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const state = urlParams.get('state');
-            
             if (code && state) {
               try {
                 const stateData = JSON.parse(state);
@@ -94,31 +112,35 @@
             return { isWechatCallback: false };
           }
 
+          // ---- iframe loader ----
           (function loadIframe(){
             const iframe = document.getElementById("dynamicIframe");
             const callbackInfo = checkWechatCallback();
-            
             let iframeUrl = FIXED_IFRAME_URL;
-            
+
             if (callbackInfo.isWechatCallback) {
               const separator = iframeUrl.includes('?') ? '&' : '?';
               iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
             } else {
               const currentParams = new URLSearchParams(window.location.search);
               const params = [];
-              
               for (const [key, value] of currentParams) {
                 params.push(`${key}=${encodeURIComponent(value)}`);
               }
-              
               if (params.length > 0) {
                 const separator = iframeUrl.includes('?') ? '&' : '?';
                 iframeUrl += `${separator}${params.join('&')}`;
               }
             }
-            
+
+            // 初始加载：固定来源的 iframeUrl 我们内嵌；如果初始 URL 指向外部域名，则直接在 top 层打开（不内嵌）
+            if (!isSameOrigin(iframeUrl, FIXED_IFRAME_URL)) {
+              openTop(iframeUrl);
+              return;
+            }
+
             iframe.src = iframeUrl;
-            
+
             iframe.onload = function() {
               setTimeout(() => {
                 try {
@@ -131,35 +153,43 @@
                       environment: 'svg_iframe'
                     }, '*');
                   }
-                } catch (e) {
-                }
+                } catch (e) {}
               }, 1000);
             };
           })();
 
+          // ---- message handler ----
           window.addEventListener("message", function(event) {
             try {
-              if (!event.data || typeof event.data !== 'object') {
+              if (!event.data || typeof event.data !== 'object') return;
+
+              const { action, url } = event.data;
+
+              // 统一 redirect：外部链接不内嵌，直接顶层跳转
+              if (action === "redirect" && typeof url === "string" && url) {
+                openTop(url);
                 return;
               }
 
-              const { action, url } = event.data;
-              
-              if (action === "redirect" && typeof url === "string" && url) {
-                window.location.href = url;
-              }
-              
+              // wechat authorize
               if (action === "wechat_authorize" && typeof url === "string" && url) {
-                window.location.href = url;
+                openTop(url);
+                return;
               }
-              
+
+              // iframe_navigate：如果目标和 iframe 的初始域相同可以内嵌，否则顶层打开
               if (action === "iframe_navigate" && typeof url === "string" && url) {
                 const iframe = document.getElementById("dynamicIframe");
-                if (iframe) {
-                  iframe.src = url;
+                // 若目标与 FIXED_IFRAME_URL 同源则内嵌，否则顶层打开
+                if (isSameOrigin(url, FIXED_IFRAME_URL)) {
+                  if (iframe) iframe.src = url;
+                } else {
+                  openTop(url);
                 }
+                return;
               }
-              
+
+              // get_client_domain：返回当前客户端 iframe 信息（保持原样）
               if (action === "get_client_domain") {
                 const iframe = document.getElementById("dynamicIframe");
                 if (iframe && iframe.contentWindow) {
@@ -169,101 +199,67 @@
                       clientDomain: FIXED_IFRAME_URL,
                       iframeDomain: FIXED_SIGN_URL
                     }, '*');
-                  } catch (e) {
-                  }
+                  } catch (e) {}
                 }
+                return;
               }
-              
+
+              // payment_redirect：尝试先通知父窗口，再做顶层跳转（确保不会被内嵌）
               if (action === "payment_redirect" && typeof url === "string" && url) {
                 if (window.self !== window.top) {
                   try {
-                    window.parent.postMessage({
-                      action: 'redirect',
-                      url: url
-                    }, '*');
-                    
-                    setTimeout(() => {
-                      window.location.href = url;
-                    }, 1000);
-                  } catch (e) {
-                    window.location.href = url;
-                  }
+                    // 先尝试告知父窗口，如果父窗口愿意处理则父窗口会覆盖导航行为
+                    window.parent.postMessage({ action: 'redirect', url: url }, '*');
+                  } catch (e) {}
+                  // 无论父窗口处理与否，最终在顶层导航到目标（避免在 iframe 内嵌）
+                  setTimeout(() => openTop(url), 200);
                 } else {
-                  window.location.href = url;
+                  openTop(url);
                 }
+                return;
               }
-              
+
+              // handle_payment：当嵌套时仍会代理给 iframe，但对于唤起类 payUrl（scheme）或外部 H5 链接，我们不内嵌，直接顶层处理
               if (action === "handle_payment" && event.data.payUrl) {
-                const { payUrl, paymentType, userAgent, isWechatBrowser, isAlipayBrowser } = event.data;
-                
+                const { payUrl, paymentType } = event.data;
+                // 如果是 urlscheme（唤起APP），在顶层尝试打开
+                if (/^[a-zA-Z0-9+\-.]+:\/\//.test(payUrl) && !/^https?:\/\//i.test(payUrl)) {
+                  // urlscheme -> 顶层打开以触发 APP 唤起
+                  openTop(payUrl);
+                  return;
+                }
+
+                // 如果是 http(s) 且与 iframe 起始域不相同 -> 顶层打开以避免内嵌
+                if (/^https?:\/\//i.test(payUrl) && !isSameOrigin(payUrl, FIXED_IFRAME_URL)) {
+                  openTop(payUrl);
+                  return;
+                }
+
+                // 否则把支付链接转发给 iframe（同源或允许内嵌的情况）
                 const iframe = document.getElementById("dynamicIframe");
                 if (iframe && iframe.contentWindow) {
                   try {
-                    iframe.contentWindow.postMessage({
-                      action: 'payment_handled'
-                    }, '*');
-                  } catch (e) {
-                  }
-                }
-                
-                if (paymentType === 'wechat' && payUrl.startsWith('weixin://wxpay/')) {
-                  if (isWechatBrowser && window.wxjs) {
-                    try {
-                      const urlParams = new URLSearchParams(payUrl.split('?')[1]);
-                      const paySign = urlParams.get('pr');
-                      
-                      if (paySign) {
-                        window.wxjs.ready(() => {
-                          window.wxjs.chooseWXPay({
-                            timestamp: Math.floor(Date.now() / 1000).toString(),
-                            nonceStr: 'wx_pay_' + Date.now(),
-                            package: 'prepay_id=' + paySign,
-                            signType: 'MD5',
-                            paySign: paySign,
-                            success: function (res) {
-                              if (iframe && iframe.contentWindow) {
-                                iframe.contentWindow.postMessage({
-                                  action: 'payment_success'
-                                }, '*');
-                              }
-                            },
-                            fail: function (res) {
-                              window.location.href = payUrl;
-                            }
-                          });
-                        });
-                      } else {
-                        window.location.href = payUrl;
-                      }
-                    } catch (e) {
-                      window.location.href = payUrl;
-                    }
-                  } else {
-                    window.location.href = payUrl;
-                  }
-                } else if (paymentType === 'alipay' && (payUrl.startsWith('alipays://') || payUrl.includes('alipay.com'))) {
-                  if (isAlipayBrowser) {
-                    window.location.href = payUrl;
-                  } else {
-                    const userAgent = navigator.userAgent.toLowerCase();
-                    const isIOS = /iphone|ipad/.test(userAgent);
-                    const isAndroid = userAgent.includes('android');
-                    
-                    if (isIOS || isAndroid) {
-                      window.location.href = payUrl;
-                      
-                      setTimeout(() => {
-                        alert('请安装支付宝客户端或在支付宝中打开');
-                      }, 2000);
+                    iframe.contentWindow.postMessage({ action: 'payment_handled' }, '*');
+                  } catch (e) {}
+                  try {
+                    // 若目标允许内嵌则导航 iframe
+                    if (isSameOrigin(payUrl, FIXED_IFRAME_URL)) {
+                      iframe.src = payUrl;
                     } else {
-                      window.location.href = payUrl;
+                      // 兜底顶层打开
+                      openTop(payUrl);
                     }
+                  } catch (e) {
+                    openTop(payUrl);
                   }
                 } else {
-                  window.location.href = payUrl;
+                  openTop(payUrl);
                 }
+                return;
               }
+
             } catch (e) {
+              // swallow
             }
           });
         </script>
