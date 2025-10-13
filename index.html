@@ -1,16 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
   <foreignObject width="100%" height="100%">
     <html xmlns="http://www.w3.org/1999/xhtml">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
         <title>Rebuild APP</title>
         <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
-        <script>
-          if (typeof wx !== 'undefined') {
-            window.wxjs = wx;
-          }
-        </script>
         <style>
           *{margin:0;padding:0;}
           html,body{width:100%;height:100%;}
@@ -18,250 +13,183 @@
         </style>
       </head>
       <body translate="no">
-        <iframe id="dynamicIframe" src="" frameborder="0"></iframe>
+        <iframe id="dynamicIframe" src="" frameborder="0" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
         <script>
-          // ---- helpers ----
-          function safeGetOrigin(url) {
-            try {
-              return new URL(url, window.location.href).origin;
-            } catch (e) {
-              return null;
-            }
-          }
+        (function(){
+          // ------- 配置 -------
+          const FIXED_IFRAME_URL = "https://h5.mrhl.top/";
+          // 如果你有多个允许内嵌的 origin，请在这里加入，例如:
+          const ALLOWED_IFRAME_ORIGINS = [new URL(FIXED_IFRAME_URL).origin]; // 白名单
+          // 后端检测接口（替换为你部署的 URL）
+          const CHECK_FRAMEABLE_API = '/api/check_frameable.php';
 
-          function isSameOrigin(urlA, urlB) {
-            const oA = safeGetOrigin(urlA);
-            const oB = safeGetOrigin(urlB);
-            if (!oA || !oB) return false;
-            return oA === oB;
+          // ------- 工具函数 -------
+          function getOrigin(url) {
+            try { return new URL(url, window.location.href).origin; }
+            catch (e) { return null; }
           }
-
-          function openTop(url) {
+          function isAllowedIframeOrigin(url) {
+            const origin = getOrigin(url);
+            if (!origin) return false;
+            return ALLOWED_IFRAME_ORIGINS.includes(origin);
+          }
+          function openTopUrl(url, { newWindow = false } = {}) {
             try {
-              // 优先尝试在 top 上导航（若被嵌套，也会在顶层打开）
+              if (newWindow) {
+                window.open(url, '_blank');
+                return;
+              }
               if (window.top && window.top !== window.self) {
                 window.top.location.href = url;
               } else {
                 window.location.href = url;
               }
             } catch (e) {
-              // 某些情况下访问 window.top 可能被阻止，兜底使用 location.href
-              window.location.href = url;
+              try { window.location.href = url; } catch (e2) { window.open(url, '_blank'); }
             }
           }
+          function isUrlScheme(s) {
+            return /^[a-zA-Z0-9+\-.]+:\/\//.test(s) && !/^https?:\/\//i.test(s);
+          }
+          function isHttpUrl(s) { return /^https?:\/\//i.test(s); }
 
-          // ---- constants ----
-          const FIXED_IFRAME_URL = "https://h5.mrhl.top/";
-          const FIXED_SIGN_URL = "https://beachercotton.github.io/xincai6666/";
+          // 异步请求后端检测目标是否可内嵌
+          async function checkFrameable(url) {
+            try {
+              // 白名单直接允许
+              if (isAllowedIframeOrigin(url)) return { frameable: true, reason: 'whitelist' };
 
-          const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
-          if (isWeChatBrowser && window.wxjs) {
-            fetch("https://api.tthaol.com/api/wechat/getJsapiTicket", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ url: FIXED_SIGN_URL })
-            })
-            .then(r => {
-              if (!r.ok) throw new Error(`HTTP ${r.status}`);
-              return r.json();
-            })
-            .then(res => {
-              if (res && res.data) {
-                try {
-                  window.wxjs.config({
-                    debug: false,
-                    appId: res.data.appId,
-                    timestamp: res.data.timestamp,
-                    nonceStr: res.data.nonceStr,
-                    signature: res.data.signature,
-                    jsApiList: ["hideOptionMenu", "hideMenuItems", "closeWindow"]
-                  });
-                  window.wxjs.ready(() => {
-                    window.wxjs.hideOptionMenu();
-                    window.wxjs.hideMenuItems({
-                      menuList: [
-                        "menuItem:share:appMessage",
-                        "menuItem:share:timeline",
-                        "menuItem:copyUrl",
-                        "menuItem:openWithQQBrowser",
-                        "menuItem:openWithSafari"
-                      ]
-                    });
-                  });
-                } catch (e) {
-                  // ignore
-                }
+              const apiUrl = CHECK_FRAMEABLE_API + '?url=' + encodeURIComponent(url);
+              const resp = await fetch(apiUrl, { method: 'GET', credentials: 'omit' });
+              if (!resp.ok) {
+                return { frameable: false, reason: 'check_api_error_' + resp.status };
               }
-            })
-            .catch(() => {});
-          }
-
-          function checkWechatCallback() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-            const state = urlParams.get('state');
-            if (code && state) {
-              try {
-                const stateData = JSON.parse(state);
-                if (stateData.source === 'wechat_login') {
-                  return { code, state, isWechatCallback: true };
-                }
-              } catch (e) {}
+              const data = await resp.json();
+              return data;
+            } catch (e) {
+              return { frameable: false, reason: 'check_exception', error: e && e.message };
             }
-            return { isWechatCallback: false };
           }
 
-          // ---- iframe loader ----
-          (function loadIframe(){
-            const iframe = document.getElementById("dynamicIframe");
-            const callbackInfo = checkWechatCallback();
+          // ------- iframe 初始加载（先检测） -------
+          async function loadInitialIframe() {
+            const iframe = document.getElementById('dynamicIframe');
             let iframeUrl = FIXED_IFRAME_URL;
+            const currentParams = new URLSearchParams(window.location.search);
+            if ([...currentParams].length) {
+              iframeUrl += (iframeUrl.includes('?') ? '&' : '?') + [...currentParams].map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+            }
 
-            if (callbackInfo.isWechatCallback) {
-              const separator = iframeUrl.includes('?') ? '&' : '?';
-              iframeUrl += `${separator}code=${callbackInfo.code}&state=${encodeURIComponent(callbackInfo.state)}`;
+            // 检测并决定是否内嵌
+            const check = await checkFrameable(iframeUrl);
+            if (check && check.frameable) {
+              iframe.src = iframeUrl;
             } else {
-              const currentParams = new URLSearchParams(window.location.search);
-              const params = [];
-              for (const [key, value] of currentParams) {
-                params.push(`${key}=${encodeURIComponent(value)}`);
-              }
-              if (params.length > 0) {
-                const separator = iframeUrl.includes('?') ? '&' : '?';
-                iframeUrl += `${separator}${params.join('&')}`;
-              }
+              // 不可内嵌：直接顶层打开
+              openTopUrl(iframeUrl);
             }
+          }
+          loadInitialIframe();
 
-            // 初始加载：固定来源的 iframeUrl 我们内嵌；如果初始 URL 指向外部域名，则直接在 top 层打开（不内嵌）
-            if (!isSameOrigin(iframeUrl, FIXED_IFRAME_URL)) {
-              openTop(iframeUrl);
-              return;
-            }
-
-            iframe.src = iframeUrl;
-
-            iframe.onload = function() {
-              setTimeout(() => {
-                try {
-                  if (iframe.contentWindow) {
-                    iframe.contentWindow.postMessage({
-                      action: 'set_iframe_parent_url',
-                      iframe_parent_url: window.location.href,
-                      parent_origin: window.location.origin,
-                      is_embedded: window.self !== window.top,
-                      environment: 'svg_iframe'
-                    }, '*');
-                  }
-                } catch (e) {}
-              }, 1000);
-            };
-          })();
-
-          // ---- message handler ----
-          window.addEventListener("message", function(event) {
+          // ------- postMessage 处理 -------
+          window.addEventListener('message', async function(event) {
             try {
               if (!event.data || typeof event.data !== 'object') return;
+              const { action, url, payUrl, paymentType } = event.data;
+              const iframe = document.getElementById('dynamicIframe');
 
-              const { action, url } = event.data;
-
-              // 统一 redirect：外部链接不内嵌，直接顶层跳转
-              if (action === "redirect" && typeof url === "string" && url) {
-                openTop(url);
+              // redirect / wechat_authorize -> 顶层打开
+              if ((action === 'redirect' || action === 'wechat_authorize') && typeof url === 'string' && url) {
+                openTopUrl(url);
                 return;
               }
 
-              // wechat authorize
-              if (action === "wechat_authorize" && typeof url === "string" && url) {
-                openTop(url);
-                return;
-              }
-
-              // iframe_navigate：如果目标和 iframe 的初始域相同可以内嵌，否则顶层打开
-              if (action === "iframe_navigate" && typeof url === "string" && url) {
-                const iframe = document.getElementById("dynamicIframe");
-                // 若目标与 FIXED_IFRAME_URL 同源则内嵌，否则顶层打开
-                if (isSameOrigin(url, FIXED_IFRAME_URL)) {
+              // iframe_navigate -> 内嵌白名单内则内嵌，否则顶层打开
+              if (action === 'iframe_navigate' && typeof url === 'string' && url) {
+                const check = await checkFrameable(url);
+                if (check && check.frameable) {
                   if (iframe) iframe.src = url;
                 } else {
-                  openTop(url);
+                  openTopUrl(url);
                 }
                 return;
               }
 
-              // get_client_domain：返回当前客户端 iframe 信息（保持原样）
-              if (action === "get_client_domain") {
-                const iframe = document.getElementById("dynamicIframe");
+              // payment_redirect -> 顶层打开（并通知 parent）
+              if (action === 'payment_redirect' && typeof url === 'string' && url) {
+                if (window.self !== window.top) {
+                  try { window.parent.postMessage({ action: 'redirect', url }, '*'); } catch (e) {}
+                  setTimeout(()=> openTopUrl(url), 150);
+                } else {
+                  openTopUrl(url);
+                }
+                return;
+              }
+
+              // handle_payment -> 统一处理 payUrl：scheme -> 顶层打开；http(s) -> 检测是否可内嵌
+              if (action === 'handle_payment' && (typeof payUrl === 'string' && payUrl)) {
+                if (isUrlScheme(payUrl)) {
+                  // 直接顶层打开以唤起 APP
+                  openTopUrl(payUrl);
+                  return;
+                }
+                if (isHttpUrl(payUrl)) {
+                  const check = await checkFrameable(payUrl);
+                  if (check && check.frameable) {
+                    if (iframe) iframe.src = payUrl;
+                  } else {
+                    openTopUrl(payUrl);
+                  }
+                  return;
+                }
+                // 兜底：顶层打开
+                openTopUrl(payUrl);
+                return;
+              }
+
+              // get_client_domain -> 回复 iframe
+              if (action === 'get_client_domain') {
                 if (iframe && iframe.contentWindow) {
                   try {
                     iframe.contentWindow.postMessage({
                       action: 'client_domain_response',
                       clientDomain: FIXED_IFRAME_URL,
-                      iframeDomain: FIXED_SIGN_URL
+                      iframeDomain: window.location.origin
                     }, '*');
                   } catch (e) {}
                 }
                 return;
               }
 
-              // payment_redirect：尝试先通知父窗口，再做顶层跳转（确保不会被内嵌）
-              if (action === "payment_redirect" && typeof url === "string" && url) {
-                if (window.self !== window.top) {
-                  try {
-                    // 先尝试告知父窗口，如果父窗口愿意处理则父窗口会覆盖导航行为
-                    window.parent.postMessage({ action: 'redirect', url: url }, '*');
-                  } catch (e) {}
-                  // 无论父窗口处理与否，最终在顶层导航到目标（避免在 iframe 内嵌）
-                  setTimeout(() => openTop(url), 200);
-                } else {
-                  openTop(url);
-                }
-                return;
-              }
-
-              // handle_payment：当嵌套时仍会代理给 iframe，但对于唤起类 payUrl（scheme）或外部 H5 链接，我们不内嵌，直接顶层处理
-              if (action === "handle_payment" && event.data.payUrl) {
-                const { payUrl, paymentType } = event.data;
-                // 如果是 urlscheme（唤起APP），在顶层尝试打开
-                if (/^[a-zA-Z0-9+\-.]+:\/\//.test(payUrl) && !/^https?:\/\//i.test(payUrl)) {
-                  // urlscheme -> 顶层打开以触发 APP 唤起
-                  openTop(payUrl);
-                  return;
-                }
-
-                // 如果是 http(s) 且与 iframe 起始域不相同 -> 顶层打开以避免内嵌
-                if (/^https?:\/\//i.test(payUrl) && !isSameOrigin(payUrl, FIXED_IFRAME_URL)) {
-                  openTop(payUrl);
-                  return;
-                }
-
-                // 否则把支付链接转发给 iframe（同源或允许内嵌的情况）
-                const iframe = document.getElementById("dynamicIframe");
-                if (iframe && iframe.contentWindow) {
-                  try {
-                    iframe.contentWindow.postMessage({ action: 'payment_handled' }, '*');
-                  } catch (e) {}
-                  try {
-                    // 若目标允许内嵌则导航 iframe
-                    if (isSameOrigin(payUrl, FIXED_IFRAME_URL)) {
-                      iframe.src = payUrl;
-                    } else {
-                      // 兜底顶层打开
-                      openTop(payUrl);
-                    }
-                  } catch (e) {
-                    openTop(payUrl);
-                  }
-                } else {
-                  openTop(payUrl);
-                }
-                return;
-              }
-
             } catch (e) {
-              // swallow
+              // swallow errors
             }
+          }, false);
+
+          // ------- 额外：如果 iframe 加载失败（短暂空白），使用超时回退（保守策略） -------
+          document.getElementById('dynamicIframe').addEventListener('load', function() {
+            // 当 iframe 成功加载，页面会触发 load，若目标站点在后续拒绝渲染可能看不到，但这是浏览器行为
           });
+
+          // 10s 后若 iframe 仍然没有 contentDocument（某些被阻止的情况），顶层打开作为兜底（可调整时长）
+          setTimeout(() => {
+            const iframe = document.getElementById('dynamicIframe');
+            try {
+              if (iframe && iframe.contentDocument && iframe.contentDocument.body && iframe.contentDocument.body.children.length === 0) {
+                // 可能被阻止渲染，尝试顶层打开 FIXED_IFRAME_URL
+                // 仅在当前 iframe.src 指向 FIXED_IFRAME_URL 时兜底
+                if (iframe.src && iframe.src.indexOf(FIXED_IFRAME_URL) === 0) {
+                  openTopUrl(iframe.src);
+                }
+              }
+            } catch (e) {
+              // cross-origin 访问会抛异常，说明被嵌套且受限制 -> 顶层打开
+              if (iframe && iframe.src) openTopUrl(iframe.src);
+            }
+          }, 10000);
+
+        })();
         </script>
       </body>
     </html>
